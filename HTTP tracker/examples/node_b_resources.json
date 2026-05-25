@@ -1,0 +1,14 @@
+{
+  "resources": [
+    {
+      "file_hash": "sha256-file-x-demo",
+      "file_name": "file-x.txt",
+      "file_size": 3072,
+      "block_size": 1024,
+      "blocks": [
+        {"index": 1, "hash": "sha256-file-x-block-1", "size": 1024},
+        {"index": 2, "hash": "sha256-file-x-block-2", "size": 1024}
+      ]
+    }
+  ]
+}
