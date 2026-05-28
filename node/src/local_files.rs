@@ -1,6 +1,6 @@
 use std::{
     fs::{self, File},
-    io::{BufReader, Read},
+    io::{BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 
@@ -29,6 +29,14 @@ pub struct BlockResource {
     pub index: usize,
     pub hash: String,
     pub size: usize,
+}
+
+pub struct LocalBlockData {
+    pub file_hash: String,
+    pub block_index: usize,
+    pub block_hash: String,
+    pub size: usize,
+    pub bytes: Vec<u8>,
 }
 
 pub fn default_share_dir() -> PathBuf {
@@ -60,6 +68,51 @@ pub fn scan_share_dir(root: &Path, block_size: usize) -> Result<ResourceIndex> {
         .collect::<Result<Vec<_>>>()?;
 
     Ok(ResourceIndex { resources })
+}
+
+pub fn read_block_by_hash(
+    root: &Path,
+    block_size: usize,
+    file_hash: &str,
+    block_index: usize,
+) -> Result<Option<LocalBlockData>> {
+    let root = root
+        .canonicalize()
+        .with_context(|| format!("failed to resolve share directory: {}", root.display()))?;
+    let index = scan_share_dir(&root, block_size)?;
+    let Some(resource) = index
+        .resources
+        .into_iter()
+        .find(|resource| resource.file_hash == file_hash)
+    else {
+        return Ok(None);
+    };
+
+    let Some(block) = resource
+        .blocks
+        .iter()
+        .find(|block| block.index == block_index)
+    else {
+        return Ok(None);
+    };
+
+    let path = root.join(resource.file_name);
+    let mut file =
+        File::open(&path).with_context(|| format!("failed to open file: {}", path.display()))?;
+    file.seek(SeekFrom::Start((block_index * block_size) as u64))
+        .with_context(|| format!("failed to seek file: {}", path.display()))?;
+
+    let mut bytes = vec![0_u8; block.size];
+    file.read_exact(&mut bytes)
+        .with_context(|| format!("failed to read block from file: {}", path.display()))?;
+
+    Ok(Some(LocalBlockData {
+        file_hash: file_hash.to_string(),
+        block_index,
+        block_hash: sha256_hex(&bytes),
+        size: bytes.len(),
+        bytes,
+    }))
 }
 
 fn collect_files(root: &Path) -> Result<Vec<PathBuf>> {
