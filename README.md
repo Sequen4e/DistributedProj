@@ -11,6 +11,15 @@
 
 ------
 
+#### 运行方法
+
+启动tracker
+```
+python ./tracker/tracker/server.py --host 0.0.0.0 --port 8000 --state tracker_state.json --ttl 90
+```
+
+------
+
 #### 理想运行流程
 
 网络中存在节点 1、2、3、A、B，以及一个 Tracker。
