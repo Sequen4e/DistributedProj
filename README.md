@@ -22,6 +22,9 @@ python ./tracker/tracker/server.py --host 0.0.0.0 --port 8000 --state tracker_st
 ```
 cargo run -- --node-id node-a --tracker http://127.0.0.1:8000 --host 127.0.0.1 --port 9001 --path ..\file --block-size 512
 ```
+> 当前版本node-id需要设置不同，否则tracker行为异常。
+
+> 如果在同一台机器（同一IP）跑多个node，需要设置不同本地端口和不同本地资源文件夹。
 ------
 
 #### 理想运行流程
