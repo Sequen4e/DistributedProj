@@ -18,6 +18,10 @@
 python ./tracker/tracker/server.py --host 0.0.0.0 --port 8000 --state tracker_state.json --ttl 90
 ```
 
+启动node
+```
+cargo run -- --tracker http://0.0.0.0:8000 --path ../file --block-size 512
+```
 ------
 
 #### 理想运行流程
