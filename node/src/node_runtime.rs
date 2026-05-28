@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use tokio::{
-    sync::{mpsc, watch},
+    sync::{mpsc, oneshot, watch},
     time::{Duration, sleep},
 };
 
@@ -10,13 +10,14 @@ use crate::{
     transfer_worker,
 };
 
-#[derive(Debug)]
+pub type CommandDone = oneshot::Sender<()>;
+
 pub enum RuntimeCommand {
     Shutdown,
-    PublishLocalFiles,
-    ListTrackerFiles,
-    Download { target: String },
-    MarkOffline,
+    PublishLocalFiles { done: CommandDone },
+    ListTrackerFiles { done: CommandDone },
+    Download { target: String, done: CommandDone },
+    MarkOffline { done: CommandDone },
 }
 
 pub async fn run(config: NodeConfig) -> Result<()> {

@@ -10,7 +10,7 @@ use tokio::sync::{mpsc, watch};
 
 use crate::{
     local_files::scan_share_dir,
-    node_runtime::RuntimeCommand,
+    node_runtime::{CommandDone, RuntimeCommand},
     node_shell::NodeConfig,
     tracker_client::TrackerClient,
     tracker_dto::{FileLocation, PeerLocation, offline_request, update_request_from_index},
@@ -21,7 +21,6 @@ pub async fn run(
     mut command_rx: mpsc::UnboundedReceiver<RuntimeCommand>,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
-    println!("Transfer worker is ready.");
     let worker = TransferWorker::new(config);
 
     loop {
@@ -63,17 +62,22 @@ impl TransferWorker {
     }
 
     async fn handle(&self, command: RuntimeCommand) {
-        let result = match command {
-            RuntimeCommand::PublishLocalFiles => self.publish_local_files().await,
-            RuntimeCommand::ListTrackerFiles => self.list_tracker_files().await,
-            RuntimeCommand::Download { target } => self.download(&target).await,
-            RuntimeCommand::MarkOffline => self.mark_offline().await,
-            RuntimeCommand::Shutdown => Ok(()),
+        if let RuntimeCommand::Shutdown = command {
+            return;
+        }
+
+        let (result, done) = match command {
+            RuntimeCommand::PublishLocalFiles { done } => (self.publish_local_files().await, done),
+            RuntimeCommand::ListTrackerFiles { done } => (self.list_tracker_files().await, done),
+            RuntimeCommand::Download { target, done } => (self.download(&target).await, done),
+            RuntimeCommand::MarkOffline { done } => (self.mark_offline().await, done),
+            RuntimeCommand::Shutdown => unreachable!(),
         };
 
         if let Err(error) = result {
-            eprintln!("Command failed: {error:#}");
+            println!("Command failed: {error:#}");
         }
+        finish_command(done);
     }
 
     async fn publish_local_files(&self) -> Result<()> {
@@ -204,6 +208,10 @@ impl TransferWorker {
         }
         Ok(blocks)
     }
+}
+
+fn finish_command(done: CommandDone) {
+    let _ = done.send(());
 }
 
 fn select_peer_for_block(

@@ -50,9 +50,6 @@ pub async fn run(config: PeerServerConfig, mut shutdown: watch::Receiver<bool>) 
     let listener = TcpListener::bind(address)
         .await
         .with_context(|| format!("failed to bind peer server on {address}"))?;
-    let bound_address = listener
-        .local_addr()
-        .context("failed to read peer server local address")?;
     if *shutdown.borrow() {
         return Ok(());
     }
@@ -66,7 +63,6 @@ pub async fn run(config: PeerServerConfig, mut shutdown: watch::Receiver<bool>) 
         .route("/api/v1/blocks", get(get_block))
         .with_state(state);
 
-    println!("Peer server listening on http://{bound_address}");
     axum::serve(listener, app)
         .with_graceful_shutdown(async move {
             while !*shutdown.borrow() {
