@@ -10,6 +10,7 @@ mod local_files;
 mod node_runtime;
 mod node_shell;
 mod peer_server;
+mod tracker_client;
 mod tracker_dto;
 mod transfer_worker;
 
@@ -17,6 +18,9 @@ mod transfer_worker;
 #[command(name = "resource-node")]
 #[command(about = "User node for the resource distribution system")]
 struct Cli {
+    #[arg(long, default_value = "node-rust")]
+    node_id: String,
+
     #[arg(long, default_value = "http://127.0.0.1:8000")]
     tracker: String,
 
@@ -37,6 +41,7 @@ struct Cli {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     run(NodeConfig {
+        node_id: cli.node_id,
         tracker: cli.tracker,
         peer_host: cli.host,
         peer_port: cli.port,

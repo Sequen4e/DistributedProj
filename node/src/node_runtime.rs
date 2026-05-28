@@ -13,10 +13,15 @@ use crate::{
 #[derive(Debug)]
 pub enum RuntimeCommand {
     Shutdown,
+    PublishLocalFiles,
+    ListTrackerFiles,
+    Download { target: String },
+    MarkOffline,
 }
 
 pub async fn run(config: NodeConfig) -> Result<()> {
     let (command_tx, mut command_rx) = mpsc::unbounded_channel();
+    let (worker_tx, worker_rx) = mpsc::unbounded_channel();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
     let peer_config = PeerServerConfig {
@@ -27,14 +32,13 @@ pub async fn run(config: NodeConfig) -> Result<()> {
     };
 
     let mut peer_handle = tokio::spawn(peer_server::run(peer_config, shutdown_rx.clone()));
-    let mut transfer_handle = tokio::spawn(transfer_worker::run(shutdown_rx));
+    let mut transfer_handle =
+        tokio::spawn(transfer_worker::run(config.clone(), worker_rx, shutdown_rx));
     let mut shell_handle = tokio::spawn(node_shell::run(config, command_tx));
 
     let completed_task = tokio::select! {
-        command = command_rx.recv() => {
-            if matches!(command, Some(RuntimeCommand::Shutdown) | None) {
-                request_shutdown(&shutdown_tx);
-            }
+        task = command_loop(&mut command_rx, &worker_tx, &shutdown_tx) => {
+            task?;
             "command"
         }
         result = &mut peer_handle => {
@@ -63,6 +67,29 @@ pub async fn run(config: NodeConfig) -> Result<()> {
     if completed_task != "CLI" {
         await_task(shell_handle, "CLI").await?;
     }
+    Ok(())
+}
+
+async fn command_loop(
+    command_rx: &mut mpsc::UnboundedReceiver<RuntimeCommand>,
+    worker_tx: &mpsc::UnboundedSender<RuntimeCommand>,
+    shutdown_tx: &watch::Sender<bool>,
+) -> Result<()> {
+    while let Some(command) = command_rx.recv().await {
+        match command {
+            RuntimeCommand::Shutdown => {
+                request_shutdown(shutdown_tx);
+                break;
+            }
+            command => {
+                if worker_tx.send(command).is_err() {
+                    request_shutdown(shutdown_tx);
+                    break;
+                }
+            }
+        }
+    }
+    request_shutdown(shutdown_tx);
     Ok(())
 }
 

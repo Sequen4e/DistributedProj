@@ -7,7 +7,9 @@ use tokio::sync::mpsc;
 use crate::local_files::scan_share_dir;
 use crate::node_runtime::RuntimeCommand;
 
+#[derive(Clone)]
 pub struct NodeConfig {
+    pub node_id: String,
     pub tracker: String,
     pub peer_host: String,
     pub peer_port: u16,
@@ -40,7 +42,7 @@ pub async fn run(
             continue;
         }
 
-        if handle_command(command, &config)? {
+        if handle_command(command, &config, &runtime_tx)? {
             break;
         }
         println!();
@@ -59,6 +61,7 @@ fn ensure_share_dir(share_dir: &PathBuf) -> Result<()> {
 
 fn print_banner(config: &NodeConfig) {
     println!("Resource node is running.");
+    println!("Node id: {}", config.node_id);
     println!("Tracker: {}", config.tracker);
     println!(
         "Peer server: http://{}:{}",
@@ -71,11 +74,30 @@ fn print_help_hint() {
     println!("Type `help` to list commands.");
 }
 
-fn handle_command(command: &str, config: &NodeConfig) -> Result<bool> {
+fn handle_command(
+    command: &str,
+    config: &NodeConfig,
+    runtime_tx: &mpsc::UnboundedSender<RuntimeCommand>,
+) -> Result<bool> {
     let mut parts = command.split_whitespace();
     match parts.next() {
         Some("scan") => scan_summary(config)?,
         Some("scanCplt") => scan_complete(config)?,
+        Some("publish") => send_runtime_command(runtime_tx, RuntimeCommand::PublishLocalFiles),
+        Some("files") => send_runtime_command(runtime_tx, RuntimeCommand::ListTrackerFiles),
+        Some("download") => {
+            let Some(target) = parts.next() else {
+                println!("Usage: download <file_hash|file_name>");
+                return Ok(false);
+            };
+            send_runtime_command(
+                runtime_tx,
+                RuntimeCommand::Download {
+                    target: target.to_string(),
+                },
+            );
+        }
+        Some("offline") => send_runtime_command(runtime_tx, RuntimeCommand::MarkOffline),
         Some("help") => print_help(),
         Some("exit") => {
             println!("Stopping resource node.");
@@ -89,6 +111,15 @@ fn handle_command(command: &str, config: &NodeConfig) -> Result<bool> {
     }
 
     Ok(false)
+}
+
+fn send_runtime_command(
+    runtime_tx: &mpsc::UnboundedSender<RuntimeCommand>,
+    command: RuntimeCommand,
+) {
+    if runtime_tx.send(command).is_err() {
+        println!("Runtime is not accepting commands.");
+    }
 }
 
 fn scan_summary(config: &NodeConfig) -> Result<()> {
@@ -116,6 +147,10 @@ fn print_help() {
     println!("Available commands:");
     println!("  scan      Scan local files and print file names with block counts");
     println!("  scanCplt  Scan local files and print complete resource index JSON");
+    println!("  publish   Publish local resource index to tracker");
+    println!("  files     List files known by tracker");
+    println!("  download  Download a file by hash or name");
+    println!("  offline   Tell tracker this node is offline");
     println!("  help      List available commands");
     println!("  exit      Stop this node process");
 }

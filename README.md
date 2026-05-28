@@ -20,7 +20,7 @@ python ./tracker/tracker/server.py --host 0.0.0.0 --port 8000 --state tracker_st
 
 启动node
 ```
-cargo run -- --tracker http://0.0.0.0:8000 --path ../file --block-size 512
+cargo run -- --node-id node-a --tracker http://127.0.0.1:8000 --host 127.0.0.1 --port 9001 --path ..\file --block-size 512
 ```
 ------
 
