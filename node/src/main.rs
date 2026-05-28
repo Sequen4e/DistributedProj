@@ -7,6 +7,7 @@ use node_shell::{NodeConfig, run};
 
 mod local_files;
 mod node_shell;
+mod tracker_dto;
 
 #[derive(Parser)]
 #[command(name = "resource-node")]
@@ -24,6 +25,7 @@ struct Cli {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    // TODO: start HTTP server in background thread
     run(NodeConfig {
         tracker: cli.tracker,
         share_dir: cli.path,
