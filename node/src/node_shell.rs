@@ -17,6 +17,7 @@ pub struct NodeConfig {
     pub block_size: usize,
 }
 
+// main process for CLI
 pub async fn run(
     config: NodeConfig,
     runtime_tx: mpsc::UnboundedSender<RuntimeCommand>,
@@ -28,7 +29,7 @@ pub async fn run(
     let mut input = String::new();
     let mut stdin = BufReader::new(io::stdin());
     loop {
-        print!("node> ");
+        print!("[{}] {}:{}> ", config.node_id, config.peer_host, config.peer_port);
         std::io::stdout().flush()?;
 
         input.clear();

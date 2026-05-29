@@ -214,6 +214,10 @@ impl TransferWorker {
 
                 match fetch_block(http.clone(), peer.clone(), file_hash.clone(), block_index, expected_hash).await {
                     Ok(block_data) => {
+                        println!(
+                            "[Download] Successfully downloaded block {} from peer {}",
+                            block_index, peer.node_id
+                        );
                         return Ok(block_data);
                     }
                     Err(e) => {
