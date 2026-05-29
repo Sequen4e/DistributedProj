@@ -88,6 +88,7 @@ async fn get_block(
     let file_hash = query.file_hash;
     let block_index = query.block_index;
 
+    // concurrently downloading blocks
     let result = tokio::task::spawn_blocking(move || {
         read_block_by_hash(&share_dir, block_size, &file_hash, block_index)
     })
