@@ -1,12 +1,12 @@
-use std::path::{Path, PathBuf};
+use std::{path::{Path, PathBuf}, sync::Arc};
 
 use bytesize::ByteSize;
 use clap::ValueHint::FilePath;
 use colored::Colorize;
 use thousands::Separable;
-use tokio::fs::File;
+use tokio::{fs::File, sync::{Mutex, RwLock, broadcast}, task::JoinSet};
 
-use crate::{announce::generate_manifest, tracker_client::TrackerClient, tui};
+use crate::{announce::generate_manifest, download::{BlockStatus, DownloadContext}, peer_server::{self, run_peer_server}, tracker_client::TrackerClient, tracker_dto::FileDetailResponse, tui};
 
 pub async fn list_file_command(client: TrackerClient) {
 
@@ -106,26 +106,20 @@ pub async fn announce_file_command(client: TrackerClient, file_path: String, blo
 pub async fn download_command(client: TrackerClient, file_id: String, save_path: String, listen_port: Option<u16>) {
 
     // env_logger::init();
-    if let Err(e) = tui_logger::init_logger(log::LevelFilter::Trace) {
-        log::error!("{} {:#}", "Failed to initialize TUI logger:".red(), e);
-    }
+    tui_logger::init_logger(log::LevelFilter::Trace).expect("Failed to initialize TUI logger");
     tui_logger::set_default_level(log::LevelFilter::Info);
 
     let save_path = Path::new(&save_path);
     if !save_path.is_dir() && !save_path.parent().is_some_and(|path| path.is_dir()) {
-        println!("{} File save directory does not exist", "Error:".bright_red().bold())
+        println!("{} File save directory does not exist", "Error:".bright_red().bold());
+        return;
     }
 
-    let manifest_list = match client.query_file(&file_id).await {
-        Ok(x) => x,
-        Err(e) => {
-            println!("{} {:#}", "Failed to query file list:".red(), e);
-            return;
-        }
-    };
+    let manifest_list = client.query_file(&file_id).await.expect("Failed to query file list");
 
     if manifest_list.len() == 0 {
-        println!("{}", "File not found".red())
+        println!("{}", "File not found".red());
+        return;
     }
 
     // Select manifest
@@ -165,26 +159,48 @@ pub async fn download_command(client: TrackerClient, file_id: String, save_path:
     };
 
     let file_path = if save_path.is_dir() {
-        save_path.join(manifest.file_name)
+        save_path.join(&manifest.file_name)
     } else {
         save_path.to_path_buf()
     };
-
-    
-    let handle = tokio::spawn(async move {
-        tui::init_tui().await;
-    });
-
-    println!("TUI initialized");
 
     let file = tokio::fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
-        .open(file_path).await;
+        .open(file_path).await.expect("Failed to open file");
+    file.set_len(manifest.file_size).await.expect("Failed to allocate space for file");
 
-    log::info!(target: "x", "w");
+    let block_count = manifest.file_size.div_ceil(manifest.block_size);
+    let blocks = vec![BlockStatus::Pending; block_count as usize];
 
-    tokio::join!(handle);
+    let (tx, _rx) = broadcast::channel(1);
+
+    let context = DownloadContext {
+        broadcast: tx,
+        peer_port: RwLock::new(listen_port.unwrap_or(0)),
+        tracker_client: client,
+        manifest,
+        file: Mutex::new(file),
+        blocks: RwLock::new(blocks),
+    };
+    let context = Arc::new(context);
+
+    let mut set = JoinSet::new();
+
+    {
+        let context = context.clone();
+        set.spawn(async {
+            tui::init_tui(context).await;
+        });
+    }
+    {
+        let context = context.clone();
+        set.spawn(async {
+            run_peer_server(context).await;
+        });
+    }
+
+    set.join_all().await;
 
 }

@@ -6,6 +6,7 @@ mod cli;
 mod tui;
 mod download;
 mod peer_server;
+mod signal;
 
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};

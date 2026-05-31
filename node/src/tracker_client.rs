@@ -3,7 +3,7 @@ use reqwest::{Client, StatusCode};
 
 use crate::{announce::AnnounceFileResponse, models::FileManifest, tracker_dto::{FileAnnounceRequest, FileDetailResponse, FileListResponse}};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TrackerClient {
     pub base_url: String,
     client: Client,
