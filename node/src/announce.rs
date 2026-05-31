@@ -8,6 +8,19 @@ use sha2::{Digest, Sha256};
 
 use crate::models::FileManifest;
 
+pub fn generate_file_hash<P: AsRef<Path>>(path: P) -> io::Result<String> {
+    let file = File::open(path)?;
+
+    let mut reader = BufReader::new(file);
+    let mut hasher = Sha256::new();
+
+    io::copy(&mut reader, &mut hasher)?;
+
+    let file_hash = hasher.finalize().encode_hex();
+
+    Ok(file_hash)
+}
+
 pub fn generate_manifest<P: AsRef<Path>>(path: P, block_size: u64, pb: Option<indicatif::ProgressBar>) -> io::Result<FileManifest> {
     let Some(file_name) = path.as_ref().file_name() else {
         return Err(io::Error::new(io::ErrorKind::InvalidFilename, "Invalid filename"));

@@ -3,10 +3,11 @@ use std::{path::{Path, PathBuf}, sync::Arc};
 use bytesize::ByteSize;
 use clap::ValueHint::FilePath;
 use colored::Colorize;
+use indicatif::ProgressBar;
 use thousands::Separable;
 use tokio::{fs::File, sync::{Mutex, RwLock, broadcast}, task::JoinSet};
 
-use crate::{announce::generate_manifest, download::{BlockStatus, DownloadContext}, peer_server::{self, run_peer_server}, tracker_client::TrackerClient, tracker_dto::FileDetailResponse, tui};
+use crate::{announce::{generate_file_hash, generate_manifest}, download::{BlockStatus, DownloadContext}, peer_server::{self, run_peer_server}, tracker_client::TrackerClient, tracker_dto::FileDetailResponse, tui};
 
 pub async fn list_file_command(client: TrackerClient) {
 
@@ -118,7 +119,7 @@ pub async fn download_command(client: TrackerClient, file_id: String, save_path:
     let manifest_list = client.query_file(&file_id).await.expect("Failed to query file list");
 
     if manifest_list.len() == 0 {
-        println!("{}", "File not found".red());
+        println!("{} File not found on tracker", "Error:".bright_red().bold());
         return;
     }
 
@@ -203,4 +204,63 @@ pub async fn download_command(client: TrackerClient, file_id: String, save_path:
 
     set.join_all().await;
 
+}
+
+pub async fn seed_command(client: TrackerClient, file_path: String, listen_port: Option<u16>) {
+
+    // env_logger::init();
+    tui_logger::init_logger(log::LevelFilter::Trace).expect("Failed to initialize TUI logger");
+    tui_logger::set_default_level(log::LevelFilter::Info);
+
+    println!("Checking local file hash...");
+    let file_hash = generate_file_hash(&file_path).expect("Failed to generate file hash");
+    let file_list = client.query_file(&file_hash).await.expect("Failed to query file on tracker");
+    if file_list.len() < 1 {
+        println!("{} File not found on tracker", "Error:".bright_red().bold());
+    } else if file_list.len() > 1 {
+        println!("{} 2 file with same hash on server", "Error:".bright_red().bold());
+    }
+    let remote_manifest = file_list[0].clone();
+
+    println!("Remote manifest retrived. Calculating local manifest...");
+    let local_manifest = generate_manifest(&file_path, remote_manifest.block_size, Some(indicatif::ProgressBar::no_length())).expect("Failed to generate file manifest");
+
+    //// TODO Integrity check
+
+    println!("Opening local file...");
+    let file = tokio::fs::OpenOptions::new()
+        .read(true)
+        .open(&file_path).await.expect("Failed to open file");
+
+    let block_count = remote_manifest.file_size.div_ceil(remote_manifest.block_size);
+    let blocks = vec![BlockStatus::Complete; block_count as usize];
+
+    let (tx, _rx) = broadcast::channel(1);
+
+    let context = DownloadContext {
+        broadcast: tx,
+        peer_port: RwLock::new(listen_port.unwrap_or(0)),
+        tracker_client: client,
+        manifest: remote_manifest,
+        file: Mutex::new(file),
+        blocks: RwLock::new(blocks),
+    };
+    let context = Arc::new(context);
+
+    let mut set = JoinSet::new();
+
+    {
+        let context = context.clone();
+        set.spawn(async {
+            tui::init_tui(context).await;
+        });
+    }
+    {
+        let context = context.clone();
+        set.spawn(async {
+            run_peer_server(context).await;
+        });
+    }
+
+    set.join_all().await;
 }
