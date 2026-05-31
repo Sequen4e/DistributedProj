@@ -6,4 +6,5 @@ tracker/tracker/__pycache__
 tracker/tests/__pycache__
 tracker/__pycache__
 node/target/
+tracker_rs/target/
 file/

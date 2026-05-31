@@ -86,6 +86,11 @@ class TrackerRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/v1/snapshot":
             self._send_json(HTTPStatus.OK, self.server.registry.snapshot())
             return
+        
+        # These are API v2 queries
+        if path == "/api/v2/file_list":
+            
+            return
 
         self._send_error(HTTPStatus.NOT_FOUND, "endpoint not found")
 

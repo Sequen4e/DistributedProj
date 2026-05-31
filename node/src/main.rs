@@ -1,50 +1,78 @@
-use std::path::PathBuf;
-
 use anyhow::Result;
-use clap::Parser;
-use local_files::{DEFAULT_BLOCK_SIZE, default_share_dir};
-use node_runtime::run;
-use node_shell::NodeConfig;
+use clap::{Args, Parser, Subcommand};
 
-mod local_files;
-mod node_runtime;
-mod node_shell;
-mod peer_server;
-mod tracker_client;
-mod tracker_dto;
-mod transfer_worker;
-mod random_id;
-
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 #[command(name = "resource-node")]
 #[command(about = "User node for the resource distribution system")]
 struct Cli {
-    #[arg(long, default_value = "http://127.0.0.1:8000")]
-    tracker: String,
+    #[command(subcommand)]
+    command: Commands
+}
 
-    #[arg(long, default_value = "127.0.0.1")]
-    host: String,
+#[derive(Subcommand, Debug)]
+enum Commands {
+    #[command(about = "List all files on the tracker")]
+    List (TrackerArg),
 
-    #[arg(long, default_value_t = 9001)]
-    port: u16,
+    #[command(about = "Show the manifest of a file on the tracker")]
+    Check {
+        #[command(flatten)]
+        tracker: TrackerArg,
 
-    #[arg(long, default_value_os_t = default_share_dir())]
-    path: PathBuf,
+        /// File-name or file-hash
+        file_id: String
+    },
 
-    #[arg(long, default_value_t = DEFAULT_BLOCK_SIZE)]
-    block_size: usize,
+    #[command(about = "Announce a local file to the tracker")]
+    Announce {
+        #[command(flatten)]
+        tracker: TrackerArg,
+
+        /// Path to local file to be announced
+        file_path: String
+    },
+
+    #[command(about = "Start downloading a file")]
+    Download {
+        #[command(flatten)]
+        tracker: TrackerArg,
+
+        /// Optional port hint. If not specified, a random port will be chosen.
+        #[arg(short = 'p', long = "port")]
+        port: Option<u16>,
+
+        /// File-name or file-hash
+        file_id: String,
+
+        /// Path to save path
+        save_path: String,
+    },
+    
+    #[command(about = "Start seeding a local file")]
+    Seed {
+        #[command(flatten)]
+        tracker: TrackerArg,
+
+        /// Optional port hint. If not specified, a random port will be chosen.
+        #[arg(short = 'p', long = "port")]
+        port: Option<u16>,
+
+        /// Path to local file to be seeded
+        file_path: String,
+    }
+}
+
+#[derive(Args, Debug)]
+struct TrackerArg {
+    /// Tracker endpoint
+    #[arg(short = 't', long = "tracker", required = true)]
+    tracker: String
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    run(NodeConfig {
-        node_id: random_id::generate_node_id(&cli.host, cli.port),
-        tracker: cli.tracker,
-        peer_host: cli.host,
-        peer_port: cli.port,
-        share_dir: cli.path,
-        block_size: cli.block_size,
-    })
-    .await
+    print!("{:#?}", cli);
+
+    Ok(())
 }
