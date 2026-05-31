@@ -19,6 +19,10 @@ pub async fn run_peer_server(context: Arc<DownloadContext>) {
 
     let port = *context.peer_port.read().await;
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await.expect("Failed to initiate peer server");
+    let port = listener.local_addr().expect("Failed to get local bind addr").port();
+    *context.peer_port.write().await = port;
+    log::info!("Started listening block request on port {}", port);
+    
     let graceful_context = context.clone();
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(async move { 
