@@ -3,11 +3,14 @@ mod tracker_dto;
 mod tracker_client;
 mod announce;
 mod cli;
+mod tui;
+mod download;
+mod peer_server;
 
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 
-use crate::{cli::{announce_file_command, list_file_command, query_file_command}, tracker_client::TrackerClient};
+use crate::{cli::{announce_file_command, download_command, list_file_command, query_file_command}, tracker_client::TrackerClient};
 
 #[derive(Parser, Debug)]
 #[command(name = "resource-node")]
@@ -87,10 +90,14 @@ async fn main() -> Result<()> {
     
     // print!("{:#?}", cli);
     match cli.command {
-        Commands::List(tracker) => list_file_command(TrackerClient::new(tracker.base_url)).await,
-        Commands::Check { tracker, file_id } => query_file_command(TrackerClient::new(tracker.base_url), file_id).await,
-        Commands::Announce { tracker, block_size, file_path } => announce_file_command(TrackerClient::new(tracker.base_url), file_path, block_size).await,
-        Commands::Download { tracker, port, file_id, save_path } => todo!(),
+        Commands::List(tracker) => 
+            list_file_command(TrackerClient::new(tracker.base_url)).await,
+        Commands::Check { tracker, file_id } => 
+            query_file_command(TrackerClient::new(tracker.base_url), file_id).await,
+        Commands::Announce { tracker, block_size, file_path } => 
+            announce_file_command(TrackerClient::new(tracker.base_url), file_path, block_size).await,
+        Commands::Download { tracker, port, file_id, save_path } => 
+            download_command(TrackerClient::new(tracker.base_url), file_id, save_path, port).await,
         Commands::Seed { tracker, port, file_path } => todo!(),
     };
 

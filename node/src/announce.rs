@@ -4,12 +4,9 @@ use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 use hex::ToHex;
-use reqwest::StatusCode;
 use sha2::{Digest, Sha256};
 
 use crate::models::FileManifest;
-use crate::tracker_client::TrackerClient;
-use crate::tracker_dto::FileAnnounceRequest;
 
 pub fn generate_manifest<P: AsRef<Path>>(path: P, block_size: u64, pb: Option<indicatif::ProgressBar>) -> io::Result<FileManifest> {
     let Some(file_name) = path.as_ref().file_name() else {

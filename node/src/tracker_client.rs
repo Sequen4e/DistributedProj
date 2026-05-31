@@ -30,7 +30,7 @@ impl TrackerClient {
 
     pub async fn query_file(&self, file_id: &str) -> Result<FileDetailResponse> {
         self.client
-            .get(self.url(&format!("/api/v2/file_list?file_id={}", file_id)))
+            .get(self.url(&format!("/api/v2/query?file_id={}", file_id)))
             .send()
             .await
             .context("Failed to send query file request")?
