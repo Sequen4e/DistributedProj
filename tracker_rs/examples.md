@@ -2,7 +2,7 @@
 #### File announce with correct block count
 ```bash
 curl -v -X POST 127.0.0.1:3000/api/v2/file_announce --json '{
-    "file_hash": "FILE_HASH_TEST_1", 
+    "file_hash": "181210f8f9c779c26da1d9b2075bde0127302ee0e3fca38c9a83f5b1dd8e5d3b", 
     "file_name": "file_name_test_1.txt",
     "file_size": 3500, 
     "block_size": 1024, 
@@ -13,7 +13,7 @@ curl -v -X POST 127.0.0.1:3000/api/v2/file_announce --json '{
 #### File announce with incorrect block count
 ```bash
 curl -v -X POST 127.0.0.1:3000/api/v2/file_announce --json '{
-    "file_hash": "FILE_HASH_TEST_2", 
+    "file_hash": "a883dafc480d466ee04e0d6da986bd78eb1fdd2178d04693723da3a8f95d42f4", 
     "file_name": "file_name_test_2.txt",
     "file_size": 3500, 
     "block_size": 1024, 

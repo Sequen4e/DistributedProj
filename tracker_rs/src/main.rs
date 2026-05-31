@@ -86,11 +86,13 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn file_announce(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<Arc<Context>>,
     Json(payload): Json<FileAnnounceRequest>,
 ) -> (StatusCode, ()) {
 
     if !payload.is_valid() {
+        log::info!("{} Bad file manifest with file name: {} (Hash {})", addr, payload.file_name, payload.file_hash);
         return (StatusCode::BAD_REQUEST, ());
     }
 
@@ -100,6 +102,7 @@ async fn file_announce(
     {
         let mut by_hash = state.file_list_by_hash.write().await;
         if by_hash.contains_key(&file.file_hash) {
+            log::info!("{} Conflict with file name: {} (Hash {})", addr, file.file_name, file.file_hash);
             return (StatusCode::CONFLICT, ());
         }
         by_hash.insert(file.file_hash.clone(), file.clone());
@@ -108,13 +111,18 @@ async fn file_announce(
     state.file_list.write().await.push(file.clone());
     state.notify_save.notify_waiters();
 
+    log::info!("{} Uploaded file {} (Hash {})", addr, file.file_name, file.file_hash);
+
     return (StatusCode::OK, ());
 }
 
 async fn file_list(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<Arc<Context>>,
 ) -> (StatusCode, Json<FileListResponse>) {
     
+    log::info!("{} Requested file list", addr);
+
     let brief_list: Vec<FileBrief> = state.file_list.read().await.iter().map(
         |file| FileBrief::from(file.as_ref())
     ).collect();
@@ -123,9 +131,12 @@ async fn file_list(
 }
 
 async fn file_query(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<Arc<Context>>,
     Query(payload): Query<FileDetailRequest>
 ) -> (StatusCode, Json<FileDetailResponse>) {
+
+    log::info!("{} Query file with name or hash {}", addr, payload.file_id);
     
     if let Some(file) = state.file_list_by_hash.read().await.get(&payload.file_id) {
         return (StatusCode::OK, Json(vec![ file.as_ref().clone() ]));

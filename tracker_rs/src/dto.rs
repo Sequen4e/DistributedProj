@@ -48,15 +48,13 @@ impl From<&FileManifest> for FileBrief {
         }
     }
 }
-
 pub type FileListResponse = Vec<FileBrief>;
-
-pub type FileDetailResponse = Vec<FileManifest>;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FileDetailRequest {
     pub file_id: String,
 }
+pub type FileDetailResponse = Vec<FileManifest>;
 
 // Peer updates
 #[derive(Serialize, Deserialize, Debug)]
@@ -74,5 +72,4 @@ pub struct PeerUpdateRequest {
 pub struct PeerListRequest {
     pub file_hash: String,
 }
-
 pub type PeerListResponse = Vec<PeerFileInfo>;

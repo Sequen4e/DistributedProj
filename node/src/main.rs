@@ -1,12 +1,20 @@
+mod models;
+mod tracker_dto;
+mod list_file;
+mod announce;
+mod cli;
+
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
+
+use crate::cli::{announce_file_command, list_file_command, query_file_command};
 
 #[derive(Parser, Debug)]
 #[command(name = "resource-node")]
 #[command(about = "User node for the resource distribution system")]
 struct Cli {
     #[command(subcommand)]
-    command: Commands
+    pub command: Commands
 }
 
 #[derive(Subcommand, Debug)]
@@ -27,6 +35,10 @@ enum Commands {
     Announce {
         #[command(flatten)]
         tracker: TrackerArg,
+
+        /// File block size
+        #[arg(short = 'b', long = "block-size", default_value_t = 65536)]
+        block_size: u64,
 
         /// Path to local file to be announced
         file_path: String
@@ -64,15 +76,22 @@ enum Commands {
 
 #[derive(Args, Debug)]
 struct TrackerArg {
-    /// Tracker endpoint
+    /// Tracker base URL
     #[arg(short = 't', long = "tracker", required = true)]
-    tracker: String
+    base_url: String
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    print!("{:#?}", cli);
+    // print!("{:#?}", cli);
+    match cli.command {
+        Commands::List(tracker_arg) => list_file_command(tracker_arg.base_url).await,
+        Commands::Check { tracker, file_id } => query_file_command(tracker.base_url, file_id).await,
+        Commands::Announce { tracker, block_size, file_path } => announce_file_command(tracker.base_url, file_path, block_size).await,
+        Commands::Download { tracker, port, file_id, save_path } => todo!(),
+        Commands::Seed { tracker, port, file_path } => todo!(),
+    };
 
     Ok(())
 }
