@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::models::FileManifest;
+use crate::models::{FileManifest, PeerFileInfo};
 
 /// The request body of announce new file
 #[derive(Serialize, Deserialize, Debug)]
@@ -69,3 +69,10 @@ pub struct PeerUpdateRequest {
     /// A 0-1 string
     pub blocks: String
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct PeerListRequest {
+    pub file_hash: String,
+}
+
+pub type PeerListResponse = Vec<PeerFileInfo>;

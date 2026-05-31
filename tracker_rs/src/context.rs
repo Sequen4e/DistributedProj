@@ -11,7 +11,7 @@ pub struct Context {
     pub file_list_by_hash: RwLock< HashMap< String, Arc<FileManifest> > >,
     pub file_list_by_name: RwLock< HashMap< String, Vec< Arc<FileManifest> > > >,
     /// The key is the hash_set for a specific file
-    pub seeding_peers: DashMap<String, Vec<PeerFileInfo> >
+    pub seeding_peers: DashMap<String, HashMap<String, PeerFileInfo> >
 }
 
 impl Context {
@@ -21,7 +21,7 @@ impl Context {
             file_list: RwLock::new(vec![]),
             file_list_by_hash: RwLock::new(HashMap::< String, Arc<FileManifest> >::new()),
             file_list_by_name: RwLock::new(HashMap::< String, Vec< Arc<FileManifest> > >::new()),
-            seeding_peers: DashMap::<String, Vec<PeerFileInfo>>::new(),
+            seeding_peers: DashMap::<String, HashMap<String, PeerFileInfo>>::new(),
         }
     }
 }

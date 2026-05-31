@@ -12,6 +12,7 @@ pub struct FileManifest {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PeerFileInfo {
+    pub file_hash: String,
     pub peer_id: String,
     pub peer_host: String,
     pub peer_port: u16,
