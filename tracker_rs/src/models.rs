@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -17,6 +18,7 @@ pub struct PeerFileInfo {
     pub peer_host: String,
     pub peer_port: u16,
     /// A 0-1 string
-    pub blocks: String
+    pub blocks: String,
+    pub last_seen: DateTime<Utc>
 }
 

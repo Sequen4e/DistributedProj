@@ -4,6 +4,7 @@ mod context;
 
 use std::{net::SocketAddr, sync::Arc};
 
+use chrono::Utc;
 use clap::Parser;
 
 use axum::{
@@ -152,7 +153,7 @@ async fn peer_update(
     };
 
     let correct_block_count = file.file_size.div_ceil(file.block_size);
-    if correct_block_count != payload.blocks.len() as u64 || payload.blocks.chars().all(|c| c != '0' && c != '1') {
+    if correct_block_count != payload.blocks.len() as u64 || payload.blocks.chars().any(|c| c != '0' && c != '1') {
         return (StatusCode::BAD_REQUEST, ());
     }
 
@@ -162,6 +163,7 @@ async fn peer_update(
         peer_host: payload.peer_host.unwrap_or(addr.ip().to_string()),
         peer_port: payload.peer_port,
         blocks: payload.blocks,
+        last_seen: Utc::now()
     };
 
     let mut peers = state.seeding_peers.entry(file.file_hash.clone()).or_default();
