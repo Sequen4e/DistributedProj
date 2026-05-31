@@ -50,10 +50,6 @@ impl From<&FileManifest> for FileBrief {
 }
 pub type FileListResponse = Vec<FileBrief>;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct FileDetailRequest {
-    pub file_id: String,
-}
 pub type FileDetailResponse = Vec<FileManifest>;
 
 // Peer updates

@@ -1,14 +1,11 @@
-use anyhow::{Context, Result, bail};
-use reqwest::Client;
+use anyhow::{Context, Result};
+use reqwest::{Client, StatusCode};
 
-use crate::tracker_dto::{
-    FilesResponse, OfflineRequest, OfflineResponse, QueryResponse, UpdateNodeRequest,
-    UpdateNodeResponse,
-};
+use crate::{announce::AnnounceFileResponse, models::FileManifest, tracker_dto::{FileAnnounceRequest, FileDetailResponse, FileListResponse}};
 
 #[derive(Clone)]
 pub struct TrackerClient {
-    base_url: String,
+    pub base_url: String,
     client: Client,
 }
 
@@ -20,71 +17,54 @@ impl TrackerClient {
         }
     }
 
-    pub async fn update_node(&self, payload: &UpdateNodeRequest) -> Result<UpdateNodeResponse> {
+    pub async fn list_file(&self) -> Result<FileListResponse> {
         self.client
-            .post(self.url("/api/v1/update"))
-            .json(payload)
+            .get(self.url("/api/v2/file_list"))
             .send()
             .await
-            .context("failed to send update request to tracker")?
-            .error_for_status()
-            .context("tracker rejected update request")?
+            .context("Failed to send list file request")?
             .json()
             .await
-            .context("failed to decode tracker update response")
+            .context("Failed to parse tracker JSON payload")
     }
 
-    pub async fn mark_offline(&self, payload: &OfflineRequest) -> Result<OfflineResponse> {
+    pub async fn query_file(&self, file_id: &str) -> Result<FileDetailResponse> {
         self.client
-            .post(self.url("/api/v1/offline"))
-            .json(payload)
+            .get(self.url(&format!("/api/v2/file_list?file_id={}", file_id)))
             .send()
             .await
-            .context("failed to send offline request to tracker")?
-            .error_for_status()
-            .context("tracker rejected offline request")?
+            .context("Failed to send query file request")?
             .json()
             .await
-            .context("failed to decode tracker offline response")
+            .context("Failed to parse tracker JSON payload")
     }
 
-    pub async fn list_files(&self) -> Result<FilesResponse> {
-        self.client
-            .get(self.url("/api/v1/files"))
+    pub async fn announce_file(&self, manifest: &FileManifest) -> anyhow::Result<AnnounceFileResponse> {
+        
+        let payload = FileAnnounceRequest {
+            file_name: manifest.file_name.clone(),
+            file_hash: manifest.file_hash.clone(),
+            file_size: manifest.file_size,
+            block_size: manifest.block_size,
+            block_hashes: manifest.block_hashes.clone(),
+        };
+
+        let response = self.client
+            .post(self.url("/api/v2/file_announce"))
+            .json(&payload)
             .send()
             .await
-            .context("failed to request file list from tracker")?
-            .error_for_status()
-            .context("tracker rejected file list request")?
-            .json()
-            .await
-            .context("failed to decode tracker file list response")
-    }
+            .context("Failed to send announce file request")?;
 
-    pub async fn query_by_hash(&self, file_hash: &str) -> Result<QueryResponse> {
-        self.query("file_hash", file_hash).await
-    }
+        let response = match response.status() {
+            StatusCode::OK => AnnounceFileResponse::Ok,
+            StatusCode::CONFLICT => AnnounceFileResponse::Conflict,
+            StatusCode::BAD_REQUEST => AnnounceFileResponse::BadRequest,
+            _ => AnnounceFileResponse::Unknown
+        };
 
-    pub async fn query_by_name(&self, file_name: &str) -> Result<QueryResponse> {
-        self.query("file_name", file_name).await
-    }
+        Ok(response)
 
-    async fn query(&self, key: &str, value: &str) -> Result<QueryResponse> {
-        if value.trim().is_empty() {
-            bail!("query value must not be empty");
-        }
-
-        self.client
-            .get(self.url("/api/v1/query"))
-            .query(&[(key, value)])
-            .send()
-            .await
-            .with_context(|| format!("failed to query tracker by {key}"))?
-            .error_for_status()
-            .with_context(|| format!("tracker rejected query by {key}"))?
-            .json()
-            .await
-            .context("failed to decode tracker query response")
     }
 
     fn url(&self, path: &str) -> String {

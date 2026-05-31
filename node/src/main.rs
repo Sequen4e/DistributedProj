@@ -1,13 +1,13 @@
 mod models;
 mod tracker_dto;
-mod list_file;
+mod tracker_client;
 mod announce;
 mod cli;
 
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 
-use crate::cli::{announce_file_command, list_file_command, query_file_command};
+use crate::{cli::{announce_file_command, list_file_command, query_file_command}, tracker_client::TrackerClient};
 
 #[derive(Parser, Debug)]
 #[command(name = "resource-node")]
@@ -84,11 +84,12 @@ struct TrackerArg {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    
     // print!("{:#?}", cli);
     match cli.command {
-        Commands::List(tracker_arg) => list_file_command(tracker_arg.base_url).await,
-        Commands::Check { tracker, file_id } => query_file_command(tracker.base_url, file_id).await,
-        Commands::Announce { tracker, block_size, file_path } => announce_file_command(tracker.base_url, file_path, block_size).await,
+        Commands::List(tracker) => list_file_command(TrackerClient::new(tracker.base_url)).await,
+        Commands::Check { tracker, file_id } => query_file_command(TrackerClient::new(tracker.base_url), file_id).await,
+        Commands::Announce { tracker, block_size, file_path } => announce_file_command(TrackerClient::new(tracker.base_url), file_path, block_size).await,
         Commands::Download { tracker, port, file_id, save_path } => todo!(),
         Commands::Seed { tracker, port, file_path } => todo!(),
     };

@@ -1,13 +1,14 @@
 use bytesize::ByteSize;
 use colored::Colorize;
 use thousands::Separable;
-use crate::{announce::{announce_file, generate_manifest}, list_file::{list_file, query_file}};
 
-pub async fn list_file_command(tracker_base_url: String) {
+use crate::{announce::generate_manifest, tracker_client::TrackerClient};
+
+pub async fn list_file_command(client: TrackerClient) {
 
     env_logger::init();
 
-    let files = match list_file(&tracker_base_url).await {
+    let files = match client.list_file().await {
         Ok(x) => x,
         Err(e) => {
             log::error!("{} {:#}", "Failed to request file list".red(), e);
@@ -25,18 +26,18 @@ pub async fn list_file_command(tracker_base_url: String) {
         } else {
             println!("  {} {}", "Size:".yellow(), file.file_size)
         }
-        println!("  {} {}", "Block Size:".yellow(), ByteSize::b(file.block_size).display().iec());
+        println!("  {} {} ({} blocks)", "Block Size:".yellow(), ByteSize::b(file.block_size).display().iec(), file.file_size.div_ceil(file.block_size));
         println!();
     }
 
     println!("Total {} files on server", files.len().to_string().green());
 }
 
-pub async fn query_file_command(tracker_base_url: String, file_id: String) {
+pub async fn query_file_command(client: TrackerClient, file_id: String) {
 
     env_logger::init();
     
-    let files = match query_file(&tracker_base_url, file_id).await {
+    let files = match client.query_file(&file_id).await {
         Ok(x) => x,
         Err(e) => {
             log::error!("{} {:#}", "Failed to request file list".red(), e);
@@ -53,18 +54,18 @@ pub async fn query_file_command(tracker_base_url: String, file_id: String) {
         } else {
             println!("  {} {}", "Size:".yellow(), file.file_size)
         }
-        println!("  {} {}", "Block Size:".yellow(), ByteSize::b(file.block_size).display().iec());
+        println!("  {} {} ({} blocks)", "Block Size:".yellow(), ByteSize::b(file.block_size).display().iec(), file.file_size.div_ceil(file.block_size));
         println!();
     }
 
-    println!("Total {} files searched on server", files.len().to_string().green());
+    println!("Total {} files in query result", files.len().to_string().green());
 }
 
-pub async fn announce_file_command(tracker_base_url: String, file_path: String, block_size: u64) {
+pub async fn announce_file_command(client: TrackerClient, file_path: String, block_size: u64) {
 
     env_logger::init();
 
-    let manifest = match generate_manifest(file_path, block_size) {
+    let manifest = match generate_manifest(file_path, block_size, Some(indicatif::ProgressBar::no_length())) {
         Ok(x) => x,
         Err(e) => {
             log::error!("{} {:#}", "Failed to generate file manifest:".red(), e);
@@ -74,7 +75,7 @@ pub async fn announce_file_command(tracker_base_url: String, file_path: String, 
 
     println!("Announcing file {} on tracker...", manifest.file_name.green().bold());
 
-    let result = match announce_file(&tracker_base_url, manifest.clone()).await {
+    let result = match client.announce_file(&manifest).await {
         Ok(x) => x,
         Err(e) => {
             log::error!("{} {:#}", "Failed to announce manifest:".red(), e);
@@ -84,10 +85,10 @@ pub async fn announce_file_command(tracker_base_url: String, file_path: String, 
 
     match result {
         crate::announce::AnnounceFileResponse::Ok => {
-            println!("Tracker: Successfully announced file {} on tracker {}", manifest.file_name.green().bold(), tracker_base_url.yellow())
+            println!("Tracker: Successfully announced file {} on tracker {}", manifest.file_name.green().bold(), client.base_url.yellow())
         },
         crate::announce::AnnounceFileResponse::Conflict => {
-            println!("Tracker: File {} already announced on tracker {}", manifest.file_name.green().bold(), tracker_base_url.yellow())
+            println!("Tracker: File {} already announced on tracker {}", manifest.file_name.green().bold(), client.base_url.yellow())
         },
         crate::announce::AnnounceFileResponse::BadRequest => {
             println!("Tracker: Broken file manifest")
