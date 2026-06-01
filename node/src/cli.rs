@@ -193,7 +193,8 @@ pub async fn download_command(client: TrackerClient, file_id: String, save_path:
         file: Mutex::new(file),
         blocks: RwLock::new(blocks),
         peers: RwLock::new(vec![]),
-        transmitted: DashMap::new()
+        transmitted: DashMap::new(),
+        block_remote_peers_count: RwLock::new(vec![]),
     };
     let context = Arc::new(context);
 
@@ -268,7 +269,8 @@ pub async fn seed_command(client: TrackerClient, file_path: String, listen_port:
         file: Mutex::new(file),
         blocks: RwLock::new(blocks),
         peers: RwLock::new(vec![]),
-        transmitted: DashMap::new()
+        transmitted: DashMap::new(),
+        block_remote_peers_count: RwLock::new(vec![]),
     };
     let context = Arc::new(context);
 

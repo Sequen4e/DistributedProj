@@ -1,9 +1,16 @@
+use std::io::SeekFrom;
 use std::sync::Arc;
 use std::time::Duration;
 
 use dashmap::DashMap;
+use hex::ToHex;
+use rand::seq::IteratorRandom;
+use reqwest::StatusCode;
+use sha2::{Digest, Sha256};
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::{Mutex, RwLock, broadcast};
 use tokio::fs::File;
+use tokio::task::JoinSet;
 use tokio::{signal, time};
 
 use crate::models::PeerFileInfo;
@@ -14,7 +21,7 @@ use crate::{models::FileManifest, tracker_client::TrackerClient};
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum BlockStatus {
     Complete,
-    Ongoing,
+    Downloading,
     Pending,
     Delayed
 }
@@ -65,16 +72,17 @@ impl DownloadContext {
         peer_counts
     }
 
-    pub async fn remote_peers_with_block(&self, block: u64) -> Vec<String> {
+    pub async fn remote_peers_with_block(&self, block: u64) -> Vec<PeerFileInfo> {
         self.peers.read().await.iter()
             .filter(|x| x.peer_id != self.node_id && x.blocks.chars().nth(block as usize).is_some_and(|c| c == '1'))
-            .map(|info| info.peer_id.clone())
+            .map(|info| info.clone())
             .collect()
     }
 
 }
 
-pub struct DownloadBlock {
+#[derive(Clone, Debug)]
+pub struct DownloadTask {
     pub peer_id: String,
     pub peer_host: String,
     pub peer_port: u16,
@@ -137,19 +145,134 @@ pub async fn download(context: Arc<DownloadContext>) {
         update_peer_info_task(update_task_context, 20).await
     });
 
-    
+    let mut set = JoinSet::new();
 
-    tokio::select! {
-        _ = signal::ctrl_c() => { update_task.abort(); },
-        _ = rx.recv() => { update_task.abort(); },
+    loop {
+
+        while set.len() < 8 {
+            if let Some(index) = decide_next_block(context.clone()).await {
+                if let Some(peer) = decide_peer(context.clone(), index).await {
+                    context.blocks.write().await[index as usize] = BlockStatus::Downloading;
+
+                    let ctx = context.clone();
+                    let task_block = DownloadTask {
+                        peer_id: peer.peer_id,
+                        peer_host: peer.peer_host,
+                        peer_port: peer.peer_port,
+                        block_index: index,
+                    };
+
+                    set.spawn(async move {
+                        let result = download_worker(ctx, task_block.clone()).await;
+                        (task_block, result)
+                    });
+                }
+            }
+            break;
+        }
+
+        tokio::select! {
+            Some(res) = set.join_next(), if !set.is_empty() => {
+                match res {
+                    Ok((task, Ok(()))) => {
+                        log::info!("Block {} downloaded written to disk", task.block_index);
+                        context.blocks.write().await[task.block_index as usize] = BlockStatus::Complete;
+                    }
+                    Ok((task, Err(e))) => {
+                        log::warn!("Block {} download failed: {:#}", task.block_index, e);
+                        context.blocks.write().await[task.block_index as usize] = BlockStatus::Pending;
+                    }
+                    Err(e) => {
+                        log::error!("Worker task panicked! {}", e);
+                    }
+                }
+            }
+
+            _ = signal::ctrl_c() => { update_task.abort(); break; },
+            _ = rx.recv() => { update_task.abort(); break;},
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum DownloadError {
+    NotFound,
+    RemotePeerError,
+    BadResponseLength{
+        expected: u64,
+        actual: u64,
+    },
+    BadResponseHash{
+        received: String,
+        manifest: String,
+    },
+    Other (anyhow::Error)
+}
+impl std::fmt::Display for DownloadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DownloadError::NotFound => write!(f, "Block not found on remote peer"),
+            DownloadError::RemotePeerError => write!(f, "Remote peer reported unknown error"),
+            DownloadError::BadResponseLength {expected, actual, .. } => write!(f, "Bad remote peer response length, expected {expected}, actual {actual}"),
+            DownloadError::BadResponseHash {received, manifest, .. } => write!(f, "Bad remote peer response, manifest hash {manifest}, received hash {received}"),
+            DownloadError::Other(err) => write!(f, "Other error: {:#}", err),
+        }
+    }
+}
+
+impl<E> From<E> for DownloadError
+where
+    E: Into<anyhow::Error>,
+{
+    fn from(err: E) -> Self {
+        DownloadError::Other(err.into())
+    }
+}
+
+
+pub async fn download_worker(context: Arc<DownloadContext>, task: DownloadTask) -> Result<(), DownloadError> {
+
+    log::info!("Requesting block {} from {}:{} ({})", task.block_index, task.peer_host, task.peer_port, task.peer_id);
+
+    let url = format!("http://{}:{}/api/v2/blocks/{}", task.peer_host, task.peer_port, task.block_index);
+    let response = reqwest::get(url).await?;
+    match response.status() {
+        StatusCode::OK => { }
+        StatusCode::NOT_FOUND => { return Err(DownloadError::NotFound) }
+        _ => { return Err(DownloadError::RemotePeerError) }
     };
+
+    let recv_buf = response.bytes().await?;
+
+    let correct_block_count = context.manifest.file_size.div_ceil(context.manifest.block_size);
+    let correct_recv_size = if correct_block_count == task.block_index + 1 {
+        context.manifest.file_size - (task.block_index * context.manifest.block_size)
+    } else {
+        context.manifest.block_size
+    };
+    if recv_buf.len() as u64 != correct_recv_size {
+        return Err(DownloadError::BadResponseLength { expected: correct_recv_size, actual: recv_buf.len() as u64 })
+    }
+
+    let expected_hash = context.manifest.block_hashes.get(task.block_index as usize);
+    let received_hash: String = Sha256::digest(&recv_buf).encode_hex();
+    if !expected_hash.is_some_and(|hash| *hash == received_hash) {
+        return Err(DownloadError::BadResponseHash { received: received_hash, manifest: expected_hash.cloned().unwrap_or("Block hash not found in manifest".to_string()) })
+    }
+
+    // File IO
+    let mut file = context.file.lock().await;
+    file.seek(SeekFrom::Start(context.manifest.block_size * task.block_index)).await?;
+    file.write(&recv_buf).await?;
+
+    Ok(())
 }
 
 pub async fn decide_next_block(context: Arc<DownloadContext>) -> Option<u64> {
     let blocks = context.blocks.read().await;
     // (Index and count)
     let mut pending_blocks: Vec<(u64, u64)> = context.block_remote_peers_count.read().await.iter().enumerate()
-        .filter(|(idx, _)| blocks.get(*idx).is_some_and(|status| *status == BlockStatus::Pending))
+        .filter(|(idx, count)| blocks.get(*idx).is_some_and(|status| **count != 0 && *status == BlockStatus::Pending ))
         .map(|(idx, count)| (idx as u64, *count) )
         .collect();
     pending_blocks.sort_by(|(ai, ac), (bi, bc)| {
@@ -160,4 +283,22 @@ pub async fn decide_next_block(context: Arc<DownloadContext>) -> Option<u64> {
     });
 
     pending_blocks.first().map(|(idx, _)| *idx)
+}
+
+pub async fn decide_peer(context: Arc<DownloadContext>, block_index: u64) -> Option<PeerFileInfo> {
+    let possible_peers = context.remote_peers_with_block(block_index).await;
+
+    let possible_peers : Vec<(PeerFileInfo, u64)> = possible_peers.into_iter()
+        .map(|info| {
+            let instance = context.transmitted.entry(info.peer_id.clone()).or_insert(0);
+            (info, *instance)
+        })
+        .collect();
+
+    let min_count = possible_peers.iter().map(|(_, count)| *count).min()?;
+
+    possible_peers.into_iter()
+        .filter(|(_, count)| *count == min_count)
+        .choose(&mut rand::rng())
+        .map(|(node, _)| node)
 }
