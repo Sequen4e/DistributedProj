@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
-use std::os::unix::fs::MetadataExt;
+use std::fs::Metadata;
 use std::path::Path;
 
 use hex::ToHex;
@@ -28,7 +28,7 @@ pub fn generate_manifest<P: AsRef<Path>>(path: P, block_size: u64, pb: Option<in
     let file_name = file_name.to_string_lossy().to_string();
 
     let mut file = File::open(path)?;
-    let file_size = file.metadata()?.size();
+    let file_size = file.metadata()?.len();
     let block_count = file_size.div_ceil(block_size);
 
     let mut block_hashes: Vec<String> = vec![];

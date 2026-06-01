@@ -166,6 +166,8 @@ pub async fn download(context: Arc<DownloadContext>) {
                         let result = download_worker(ctx, task_block.clone()).await;
                         (task_block, result)
                     });
+                } else {
+                    context.blocks.write().await[index as usize] = BlockStatus::Delayed;
                 }
             }
             break;
