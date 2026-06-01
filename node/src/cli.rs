@@ -173,10 +173,12 @@ pub async fn download_command(client: TrackerClient, file_id: String, save_path:
     };
 
     let file = tokio::fs::OpenOptions::new()
+        .read(true)
         .write(true)
         .create(true)
         .truncate(true)
         .open(file_path).await.expect("Failed to open file");
+
     file.set_len(manifest.file_size).await.expect("Failed to allocate space for file");
 
     let block_count = manifest.file_size.div_ceil(manifest.block_size);
