@@ -182,10 +182,11 @@ pub async fn download(context: Arc<DownloadContext>) {
 
         tokio::select! {
             _ = interval.tick() => {},
+
             Some(res) = set.join_next(), if !set.is_empty() => {
                 match res {
                     Ok((task, Ok(()))) => {
-                        log::info!("Block {} downloaded written to disk", task.block_index);
+                        // log::info!("Block {} downloaded written to disk", task.block_index);
                         context.blocks.write().await[task.block_index as usize] = BlockStatus::Complete;
                     }
                     Ok((task, Err(e))) => {
@@ -242,9 +243,9 @@ where
 
 pub async fn download_worker(context: Arc<DownloadContext>, task: DownloadTask) -> Result<(), DownloadError> {
 
-    log::info!("Requesting block {} from {}:{} ({})", task.block_index, task.peer_host, task.peer_port, task.peer_id);
-
     let url = format!("http://{}:{}/api/v2/blocks/{}", task.peer_host, task.peer_port, task.block_index);
+    log::info!(target:"download_worker", "Polling node {}\n  ({})", task.peer_id, url);
+
     let response = reqwest::get(url).await?;
     match response.status() {
         StatusCode::OK => { }

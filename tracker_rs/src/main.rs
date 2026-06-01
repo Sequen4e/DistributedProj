@@ -4,7 +4,7 @@ mod context;
 
 use std::{net::SocketAddr, sync::Arc};
 
-use chrono::Utc;
+use chrono::{TimeDelta, Utc};
 use clap::Parser;
 
 use axum::{
@@ -218,4 +218,20 @@ async fn peer_list(
 
 async fn clean_expired_peer_task(ctx: Arc<Context>) {
 
+    let period = std::time::Duration::from_secs_f32(10.0);
+    let mut interval = tokio::time::interval(period);
+
+    loop {
+        interval.tick().await;
+
+        for mut peers in ctx.seeding_peers.iter_mut() {
+            peers.retain(|name, peer| {
+                let expired = peer.last_seen + TimeDelta::seconds(30) < Utc::now();
+                if expired {
+                    log::info!(target:"clean", "Node {} removed due to cleaning", name);
+                }
+                !expired
+            });
+        }
+    }
 } 
