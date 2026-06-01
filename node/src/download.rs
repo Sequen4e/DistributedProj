@@ -126,10 +126,14 @@ pub async fn update_peer_info_task(context: Arc<DownloadContext>, seconds: u64) 
         }).collect();
         log::info!(target: "peer_update", "Currently {} peers online", peers.len());
 
-        let mut guard = context.peers.write().await;
-        let _ = std::mem::replace(&mut *guard, peers);
-        let mut guard = context.block_remote_peers_count.write().await;
-        let _ = std::mem::replace(&mut *guard, context.calculate_block_remote_peers_count().await);
+        {
+            let mut guard = context.peers.write().await;
+            let _ = std::mem::replace(&mut *guard, peers);
+        }
+        {
+            let mut guard = context.block_remote_peers_count.write().await;
+            let _ = std::mem::replace(&mut *guard, context.calculate_block_remote_peers_count().await);
+        }
     }
 }
 
@@ -144,6 +148,9 @@ pub async fn download(context: Arc<DownloadContext>) {
     let update_task = tokio::spawn(async move {
         update_peer_info_task(update_task_context, 20).await
     });
+    // Create forced interval
+    let period = std::time::Duration::from_secs_f32(1.0);
+    let mut interval = tokio::time::interval(period);
 
     let mut set = JoinSet::new();
 
@@ -174,6 +181,7 @@ pub async fn download(context: Arc<DownloadContext>) {
         }
 
         tokio::select! {
+            _ = interval.tick() => {},
             Some(res) = set.join_next(), if !set.is_empty() => {
                 match res {
                     Ok((task, Ok(()))) => {

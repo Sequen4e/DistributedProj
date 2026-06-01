@@ -69,13 +69,20 @@ async fn main() -> anyhow::Result<()> {
         // TODO: Generate a task here
     }
 
+    let context = Arc::new(context);
+
     let app= Router::new()
         .route("/api/v2/file_list", get(file_list))
         .route("/api/v2/query", get(file_query))
         .route("/api/v2/file_announce", post(file_announce))
         .route("/api/v2/update", post(peer_update))
         .route("/api/v2/peer_list", get(peer_list))
-        .with_state(Arc::new(context));
+        .with_state(context.clone());
+
+    let ctx_clean = context.clone();
+    tokio::spawn(async move {
+        clean_expired_peer_task(ctx_clean).await;
+    });
 
     log::info!("Started to listen on {}", &cli.endpoint);
     
@@ -208,3 +215,7 @@ async fn peer_list(
 
     (StatusCode::OK, Json(vec![]))
 }
+
+async fn clean_expired_peer_task(ctx: Arc<Context>) {
+
+} 
