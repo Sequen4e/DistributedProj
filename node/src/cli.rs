@@ -3,6 +3,7 @@ use std::path::Path;
 
 use bytesize::ByteSize;
 use colored::Colorize;
+use dashmap::DashMap;
 use thousands::Separable;
 use tokio::task::JoinSet;
 use tokio::sync::{Mutex, RwLock, broadcast};
@@ -191,7 +192,8 @@ pub async fn download_command(client: TrackerClient, file_id: String, save_path:
         manifest,
         file: Mutex::new(file),
         blocks: RwLock::new(blocks),
-        peers: RwLock::new(vec![])
+        peers: RwLock::new(vec![]),
+        transmitted: DashMap::new()
     };
     let context = Arc::new(context);
 
@@ -265,7 +267,8 @@ pub async fn seed_command(client: TrackerClient, file_path: String, listen_port:
         manifest: remote_manifest,
         file: Mutex::new(file),
         blocks: RwLock::new(blocks),
-        peers: RwLock::new(vec![])
+        peers: RwLock::new(vec![]),
+        transmitted: DashMap::new()
     };
     let context = Arc::new(context);
 

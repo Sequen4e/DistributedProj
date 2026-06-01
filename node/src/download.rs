@@ -1,9 +1,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use dashmap::DashMap;
 use tokio::sync::{Mutex, RwLock, broadcast};
 use tokio::fs::File;
-use tokio::task::yield_now;
 use tokio::{signal, time};
 
 use crate::models::PeerFileInfo;
@@ -29,9 +29,11 @@ pub struct DownloadContext {
     pub manifest: FileManifest,
     pub file: Mutex<File>,
     pub blocks: RwLock<Vec <BlockStatus> >,
-    pub peers: RwLock<Vec <PeerFileInfo> >
+    pub peers: RwLock<Vec <PeerFileInfo> >,
+    pub transmitted: DashMap<String, u64>,
 }
 impl DownloadContext {
+
     pub async fn to_update_payload(&self) -> PeerUpdateRequest {
         let zero_one_str: String = self.blocks.read().await.iter()
             .map(|status| match status {
@@ -47,6 +49,35 @@ impl DownloadContext {
             blocks: zero_one_str,
         }
     }
+
+    pub async fn block_remote_peers_count(&self) -> Vec<u64> {
+        let block_count = self.manifest.file_size.div_ceil(self.manifest.block_size);
+        let bitmap : Vec<String> = self.peers.read().await.iter().map(|x| x.blocks.clone()).collect();
+        let mut peer_counts = vec![0; block_count as usize];
+        for peer_block in bitmap {
+            for index in 0..block_count as usize {
+                if peer_block.chars().nth(index).is_some_and(|c| c == '1') {
+                    peer_counts[index] += 1;
+                }
+            }
+        }
+        peer_counts
+    }
+
+    pub async fn remote_peers_with_block(&self, block: u64) -> Vec<String> {
+        self.peers.read().await.iter()
+            .filter(|x| x.peer_id != self.node_id && x.blocks.chars().nth(block as usize).is_some_and(|c| c == '1'))
+            .map(|info| info.peer_id.clone())
+            .collect()
+    }
+
+}
+
+pub struct DownloadBlock {
+    pub peer_id: String,
+    pub peer_host: String,
+    pub peer_port: u16,
+    pub block_index: u64,
 }
 
 pub async fn update_peer_info_task(context: Arc<DownloadContext>, seconds: u64) {
@@ -54,7 +85,6 @@ pub async fn update_peer_info_task(context: Arc<DownloadContext>, seconds: u64) 
 
     loop {
         interval.tick().await;
-        log::info!(target: "peer_update", "Updateting peer info");
 
         match context.tracker_client.update_peer(context.to_update_payload().await).await {
             Ok(PeerUpdateResponse::Ok) => {},
@@ -77,7 +107,16 @@ pub async fn update_peer_info_task(context: Arc<DownloadContext>, seconds: u64) 
             }
         };
 
-        log::info!(target: "peer_update", "\n{:#?}", peers);
+        let peers: Vec<PeerFileInfo> = peers.into_iter().filter(|x| {
+            let pass = x.blocks.len() as u64 == (context.manifest.file_size.div_ceil(context.manifest.block_size)) &&
+            x.blocks.chars().all(|c| c == '0' || c == '1');
+            if !pass {
+                log::warn!(target: "peer_update", "Invalid peer info inspesctd in peer list (peer_id{})", x.peer_id);
+            }
+            pass
+        }).collect();
+
+        log::info!(target: "peer_update", "Currently {} peers online", peers.len());
 
         let mut guard = context.peers.write().await;
         let _ = std::mem::replace(&mut *guard, peers);
@@ -90,10 +129,13 @@ pub async fn download(context: Arc<DownloadContext>) {
 
     let mut rx = context.broadcast.subscribe();
 
+    // Create update task
     let update_task_context = context.clone();
     let update_task = tokio::spawn(async move {
         update_peer_info_task(update_task_context, 20).await
     });
+
+    
 
     tokio::select! {
         _ = signal::ctrl_c() => { update_task.abort(); },

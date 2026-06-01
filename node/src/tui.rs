@@ -15,7 +15,7 @@ use crate::signal::BroadcastSignal;
 pub async fn init_tui(context: Arc<DownloadContext>) {
     disable_raw_mode().expect("Failed to disable raw mode");
     let terminal = ratatui::init();
-    Tui {context, progress: 0.0} .run(terminal).await;
+    let _ = Tui {context, progress: 0.0} .run(terminal).await;
 
     ratatui::restore();
 }

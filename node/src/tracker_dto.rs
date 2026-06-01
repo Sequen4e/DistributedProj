@@ -98,8 +98,4 @@ impl From<StatusCode> for PeerUpdateResponse {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct PeerListRequest {
-    pub file_hash: String,
-}
 pub type PeerListResponse = Vec<PeerFileInfo>;
