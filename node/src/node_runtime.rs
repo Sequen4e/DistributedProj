@@ -44,7 +44,7 @@ pub async fn run(config: NodeConfig) -> Result<()> {
         config.clone(),
         worker_rx,
         shutdown_rx.clone(),
-        broadcast_tx.clone(), // 🚀 核心：把广播发射器传给后台下载线程
+        broadcast_tx.clone(),
     ));
 
     let mut tui_handle = tokio::spawn(crate::tui::init_tui(

@@ -6,7 +6,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use reqwest::Client;
 use sha2::{Digest, Sha256};
-use tokio::sync::{mpsc, watch, broadcast}; // 🚀 引入 broadcast
+use tokio::sync::{mpsc, watch, broadcast};
 
 use crate::{
     local_files::scan_share_dir,
@@ -14,14 +14,14 @@ use crate::{
     node_shell::NodeConfig,
     tracker_client::TrackerClient,
     tracker_dto::{FileLocation, PeerLocation, offline_request, update_request_from_index},
-    signal::BroadcastSignal, // 🚀 引入你的信号定义
+    signal::BroadcastSignal,
 };
 
 pub async fn run(
     config: NodeConfig,
     mut command_rx: mpsc::UnboundedReceiver<RuntimeCommand>,
     mut shutdown: watch::Receiver<bool>,
-    broadcast_tx: broadcast::Sender<BroadcastSignal>, // 🚀 核心改动 1：传入广播发射器
+    broadcast_tx: broadcast::Sender<BroadcastSignal>,
 ) -> Result<()> {
     let worker = TransferWorker::new(config, broadcast_tx);
 
@@ -52,7 +52,7 @@ struct TransferWorker {
     config: NodeConfig,
     tracker: TrackerClient,
     http: Client,
-    broadcast_tx: broadcast::Sender<BroadcastSignal>, // 🚀 核心改动 2：保存发射器
+    broadcast_tx: broadcast::Sender<BroadcastSignal>,
 }
 
 impl TransferWorker {
@@ -65,7 +65,6 @@ impl TransferWorker {
         }
     }
 
-    // 🚀 封装日志助手：不再直接 println!，而是扔进 TUI 广播
     fn log(&self, msg: impl Into<String>) {
         let _ = self.broadcast_tx.send(BroadcastSignal::ConsoleLog(msg.into()));
     }
@@ -140,7 +139,6 @@ impl TransferWorker {
     async fn download(&self, target: &str) -> Result<()> {
         let location = self.resolve_download_target(target).await?;
         
-        // 🚀 核心改动 3：下载开始，立刻将任务基础信息推给 TUI 右侧面板展示
         let estimated_size = location.available_blocks.len() as u64 * self.config.block_size as u64;
         let _ = self.broadcast_tx.send(BroadcastSignal::TaskInfo {
             file_name: location.file_name.clone(),
@@ -203,12 +201,10 @@ impl TransferWorker {
 
         let total_blocks = location.available_blocks.len();
         
-        // 🚀 核心改动 4：使用原子计数器，用于多线程并发安全地累加已下载的分块数
         let downloaded_count = Arc::new(AtomicUsize::new(0)); 
         let location = Arc::new(location.clone());
         let mut handles = Vec::new();
 
-        // 🚀 核心改动 5：下载刚启动，先初始化进度条为 0%
         let _ = self.broadcast_tx.send(BroadcastSignal::ProgressUpdate {
             downloaded_blocks: 0,
             total_blocks,
@@ -220,8 +216,8 @@ impl TransferWorker {
             let self_node_id = self.config.node_id.clone();
             let location_clone = Arc::clone(&location);
             
-            let tx = self.broadcast_tx.clone();                // 克隆发射器供子任务线程使用
-            let counter = Arc::clone(&downloaded_count);       // 克隆原子计数器的引用
+            let tx = self.broadcast_tx.clone(); 
+            let counter = Arc::clone(&downloaded_count);
 
             handles.push(tokio::spawn(async move {
                 let candidates = get_candidates_for_block(&location_clone, block_index, &self_node_id);

@@ -30,7 +30,6 @@ pub async fn init_tui(
     if let Ok(mut terminal) = Terminal::new(backend) {
         let _ = terminal.clear();
         
-        //   初始化控制台终端欢迎语（现在它会在左侧大面板回显）
         let initial_history = vec![
             "Welcome to Resource Node Console Hub".to_string(),
             "Type `help` to list available commands.".to_string(),
@@ -224,13 +223,12 @@ impl Tui {
     fn render(&self, frame: &mut Frame) {
         let frame_size = frame.size();
 
-        //   布局修改 1：底部只切出 3 个像素高度（除去上下边框，正好剩下 1 行用来打字输入）
         let vlayout = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![
-                Constraint::Fill(1),      // 上方核心大看板（包含左侧重定向区域 + 右侧详情）
-                Constraint::Length(4),    // 中间传输进度条
-                Constraint::Length(3)     //   底部单行命令输入框
+                Constraint::Fill(1),      
+                Constraint::Length(4),    
+                Constraint::Length(3)     
             ])
             .split(frame_size);
 
@@ -248,13 +246,11 @@ impl Tui {
         let console_area = hlayout[0];
         let inner_console = console_block.inner(console_area);
         
-        // 动态计算左侧巨大的可视行数
         let max_console_lines = inner_console.height as usize;
         let console_lines: Vec<Line> = self.cli_history.iter()
             .map(|s| Line::from(s.clone().white()))
             .collect();
 
-        // 超长文本自动滚屏切片
         let scrolled_console_lines = if console_lines.len() > max_console_lines {
             &console_lines[console_lines.len() - max_console_lines..]
         } else {
@@ -265,7 +261,6 @@ impl Tui {
         frame.render_widget(console_block, console_area);
         frame.render_widget(console_paragraph, inner_console);
 
-        // 2. 右侧任务信息（保持不变）
         let info_block = Block::new().borders(Borders::ALL).title("Node Task Info");
         let lines = vec![
             "File Name:".bold().into(),
@@ -278,7 +273,6 @@ impl Tui {
         frame.render_widget(info_block, hlayout[1]);
         frame.render_widget(paragraph, inner_info);
 
-        // 3. 中间进度条（保持不变）
         let progress_block = Block::new().borders(Borders::ALL).title("Transmission Progress").title_style(Style::default().bold());
         let progress_gauge = Gauge::default()
             .gauge_style(Style::new().light_yellow().on_dark_gray())
@@ -289,7 +283,6 @@ impl Tui {
         let prog_layout = Layout::default().direction(Direction::Vertical).constraints(vec![Constraint::Length(1), Constraint::Length(1)]).split(inner_prog);
         frame.render_widget(progress_gauge, prog_layout[1]);
 
-        //   布局修改 3：渲染极简的底部单行输入框
         let input_block = Block::new()
             .borders(Borders::ALL)
             .title(" Command Input (e.g., `local`, `localCplt`, `download <hash>`) ")
@@ -298,7 +291,6 @@ impl Tui {
         let input_area = vlayout[2];
         let inner_input = input_block.inner(input_area);
         
-        // 渲染单行的活动输入：[id] host:port> 你的打字内容
         let prompt_prefix = format!("[{}] {}:{}> ", self.config.node_id, self.config.peer_host, self.config.peer_port);
         let active_line = Line::from_iter([
             prompt_prefix.clone().cyan(), 
@@ -309,7 +301,6 @@ impl Tui {
         frame.render_widget(input_block, input_area);
         frame.render_widget(input_paragraph, inner_input);
 
-        //   布局修改 4：由于输入框只有一行，光标的 Y 轴永远固定，X 轴跟随打字长度变化即可
         let cursor_x = inner_input.x + (prompt_prefix.len() as u16) + (self.input_buffer.len() as u16);
         let cursor_y = inner_input.y;
         frame.set_cursor(cursor_x, cursor_y);
