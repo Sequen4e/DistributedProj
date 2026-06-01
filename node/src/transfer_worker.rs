@@ -1,12 +1,12 @@
 use std::{
     path::{Component, Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, atomic::{AtomicUsize, Ordering}},
 };
 
 use anyhow::{Context, Result, bail};
 use reqwest::Client;
 use sha2::{Digest, Sha256};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, watch, broadcast}; // 🚀 引入 broadcast
 
 use crate::{
     local_files::scan_share_dir,
@@ -14,14 +14,16 @@ use crate::{
     node_shell::NodeConfig,
     tracker_client::TrackerClient,
     tracker_dto::{FileLocation, PeerLocation, offline_request, update_request_from_index},
+    signal::BroadcastSignal, // 🚀 引入你的信号定义
 };
 
 pub async fn run(
     config: NodeConfig,
     mut command_rx: mpsc::UnboundedReceiver<RuntimeCommand>,
     mut shutdown: watch::Receiver<bool>,
+    broadcast_tx: broadcast::Sender<BroadcastSignal>, // 🚀 核心改动 1：传入广播发射器
 ) -> Result<()> {
-    let worker = TransferWorker::new(config);
+    let worker = TransferWorker::new(config, broadcast_tx);
 
     loop {
         tokio::select! {
@@ -50,15 +52,22 @@ struct TransferWorker {
     config: NodeConfig,
     tracker: TrackerClient,
     http: Client,
+    broadcast_tx: broadcast::Sender<BroadcastSignal>, // 🚀 核心改动 2：保存发射器
 }
 
 impl TransferWorker {
-    fn new(config: NodeConfig) -> Self {
+    fn new(config: NodeConfig, broadcast_tx: broadcast::Sender<BroadcastSignal>) -> Self {
         Self {
             tracker: TrackerClient::new(config.tracker.clone()),
             http: Client::new(),
             config,
+            broadcast_tx,
         }
+    }
+
+    // 🚀 封装日志助手：不再直接 println!，而是扔进 TUI 广播
+    fn log(&self, msg: impl Into<String>) {
+        let _ = self.broadcast_tx.send(BroadcastSignal::ConsoleLog(msg.into()));
     }
 
     async fn handle(&self, command: RuntimeCommand) {
@@ -75,7 +84,8 @@ impl TransferWorker {
         };
 
         if let Err(error) = result {
-            println!("Command failed: {error:#}");
+            // 🚀 错误信息也安全重定向到 TUI
+            self.log(format!("Command failed: {error:#}"));
         }
         finish_command(done);
     }
@@ -89,29 +99,30 @@ impl TransferWorker {
             &index,
         );
         let response = self.tracker.update_node(&payload).await?;
-        println!(
+        
+        self.log(format!(
             "Published {} local resources. Tracker knows {} files. Expires at {}.",
             response.registered_resources, response.known_files, response.expires_at
-        );
+        ));
         Ok(())
     }
 
     async fn list_tracker_files(&self) -> Result<()> {
         let response = self.tracker.list_files().await?;
         if response.files.is_empty() {
-            println!("Tracker has no files.");
+            self.log("Tracker has no files.");
             return Ok(());
         }
 
-        println!("file_name | file_hash | peers | blocks");
+        self.log("file_name | file_hash | peers | blocks");
         for file in response.files {
-            println!(
+            self.log(format!(
                 "{} | {} | {} | {}",
                 file.file_name,
                 file.file_hash,
                 file.peer_count,
                 file.available_blocks.len()
-            );
+            ));
         }
         Ok(())
     }
@@ -119,15 +130,24 @@ impl TransferWorker {
     async fn mark_offline(&self) -> Result<()> {
         let payload = offline_request(&self.config.node_id);
         let response = self.tracker.mark_offline(&payload).await?;
-        println!(
+        self.log(format!(
             "Tracker offline update accepted. removed={}",
             response.removed
-        );
+        ));
         Ok(())
     }
 
     async fn download(&self, target: &str) -> Result<()> {
         let location = self.resolve_download_target(target).await?;
+        
+        // 🚀 核心改动 3：下载开始，立刻将任务基础信息推给 TUI 右侧面板展示
+        let estimated_size = location.available_blocks.len() as u64 * self.config.block_size as u64;
+        let _ = self.broadcast_tx.send(BroadcastSignal::TaskInfo {
+            file_name: location.file_name.clone(),
+            file_size: estimated_size,
+            file_hash: location.file_hash.clone(),
+        });
+
         let blocks = self.download_blocks(&location).await?;
         let bytes = join_blocks(blocks)?;
 
@@ -149,11 +169,12 @@ impl TransferWorker {
             .with_context(|| {
                 format!("failed to write downloaded file: {}", output_path.display())
             })?;
-        println!(
-            "Downloaded {} to {}",
+        
+        self.log(format!(
+            "Successfully downloaded {} to {}",
             location.file_name,
             output_path.display()
-        );
+        ));
 
         self.publish_local_files().await?;
         Ok(())
@@ -176,80 +197,95 @@ impl TransferWorker {
     }
 
     async fn download_blocks(&self, location: &FileLocation) -> Result<Vec<(usize, Vec<u8>)>> {
-    if location.available_blocks.is_empty() {
-        bail!(
-            "Tracker returned no available blocks for {}",
-            location.file_name
-        );
-    }
+        if location.available_blocks.is_empty() {
+            bail!("Tracker returned no available blocks for {}", location.file_name);
+        }
 
-    let location = Arc::new(location.clone());
-    let mut handles = Vec::new();
+        let total_blocks = location.available_blocks.len();
+        
+        // 🚀 核心改动 4：使用原子计数器，用于多线程并发安全地累加已下载的分块数
+        let downloaded_count = Arc::new(AtomicUsize::new(0)); 
+        let location = Arc::new(location.clone());
+        let mut handles = Vec::new();
 
-    for block_index in location.available_blocks.iter().copied() {
-        let http = self.http.clone();
-        let file_hash = location.file_hash.clone();
-        let self_node_id = self.config.node_id.clone();
-        let location_clone = Arc::clone(&location);
+        // 🚀 核心改动 5：下载刚启动，先初始化进度条为 0%
+        let _ = self.broadcast_tx.send(BroadcastSignal::ProgressUpdate {
+            downloaded_blocks: 0,
+            total_blocks,
+        });
 
-        handles.push(tokio::spawn(async move {
-            let candidates = get_candidates_for_block(&location_clone, block_index, &self_node_id);
-            if candidates.is_empty() {
-                bail!("No peer can provide block {block_index} (candidate list is empty)");
-            }
+        for block_index in location.available_blocks.iter().copied() {
+            let http = self.http.clone();
+            let file_hash = location.file_hash.clone();
+            let self_node_id = self.config.node_id.clone();
+            let location_clone = Arc::clone(&location);
+            
+            let tx = self.broadcast_tx.clone();                // 克隆发射器供子任务线程使用
+            let counter = Arc::clone(&downloaded_count);       // 克隆原子计数器的引用
 
-            let mut last_error = None;
+            handles.push(tokio::spawn(async move {
+                let candidates = get_candidates_for_block(&location_clone, block_index, &self_node_id);
+                if candidates.is_empty() {
+                    bail!("No peer can provide block {block_index} (candidate list is empty)");
+                }
 
-            for peer in candidates {
-                let expected_hash = peer
-                    .blocks
-                    .iter()
-                    .find(|block| block.index == block_index)
-                    .map(|block| block.hash.clone());
+                let mut last_error = None;
 
-                println!(
-                    "[Download] Trying to fetch block {} from peer {} ({}:{})", 
-                    block_index, peer.node_id, peer.host, peer.port
-                );
+                for peer in candidates {
+                    let expected_hash = peer
+                        .blocks
+                        .iter()
+                        .find(|block| block.index == block_index)
+                        .map(|block| block.hash.clone());
 
-                match fetch_block(http.clone(), peer.clone(), file_hash.clone(), block_index, expected_hash).await {
-                    Ok(block_data) => {
-                        println!(
-                            "[Download] Successfully downloaded block {} from peer {}",
-                            block_index, peer.node_id
-                        );
-                        return Ok(block_data);
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "[Warning] Failed to fetch block {} from {}: {}. Trying next peer...", 
-                            block_index, peer.node_id, e
-                        );
-                        last_error = Some(e);
+                    // 🚀 替换 println! -> 通过通道向 TUI 发送日志
+                    let _ = tx.send(BroadcastSignal::ConsoleLog(format!(
+                        "[Download] Fetching block {} from peer {} ({}:{})", 
+                        block_index, peer.node_id, peer.host, peer.port
+                    )));
+
+                    match fetch_block(http.clone(), peer.clone(), file_hash.clone(), block_index, expected_hash).await {
+                        Ok(block_data) => {
+                            let _ = tx.send(BroadcastSignal::ConsoleLog(format!(
+                                "[Download] Block {} downloaded from peer {}",
+                                block_index, peer.node_id
+                            )));
+                            
+                            // 🚀 核心改动 6：下载成功一个块，原子计数器 +1 并向 TUI 发射进度信号
+                            let current_downloaded = counter.fetch_add(1, Ordering::SeqCst) + 1;
+                            let _ = tx.send(BroadcastSignal::ProgressUpdate {
+                                downloaded_blocks: current_downloaded,
+                                total_blocks,
+                            });
+
+                            return Ok(block_data);
+                        }
+                        Err(e) => {
+                            let _ = tx.send(BroadcastSignal::ConsoleLog(format!(
+                                "[Warning] Failed block {} from {}: {}. Retrying next...", 
+                                block_index, peer.node_id, e
+                            )));
+                            last_error = Some(e);
+                        }
                     }
                 }
-            }
 
-            bail!(
-                "All peers failed to provide block {block_index}. Last error: {:?}", 
-                last_error
-            );
-        }));
-    }
+                bail!("All peers failed to provide block {block_index}. Last error: {:?}", last_error);
+            }));
+        }
 
-    let mut blocks = Vec::new();
-    for handle in handles {
-        blocks.push(handle.await.context("Download task failed to join")??);
+        let mut blocks = Vec::new();
+        for handle in handles {
+            blocks.push(handle.await.context("Download task failed to join")??);
+        }
+        Ok(blocks)
     }
-    Ok(blocks)
-}
 }
 
 fn finish_command(done: CommandDone) {
     let _ = done.send(());
 }
 
-// workload balancing algorithm
 fn get_candidates_for_block(
     location: &FileLocation,
     block_index: usize,
@@ -273,7 +309,6 @@ fn get_candidates_for_block(
     let total_peers = peers.len();
     let shift = block_index % total_peers;
     
-    // Round Robin
     let mut rotated_peers = Vec::with_capacity(total_peers);
     for i in 0..total_peers {
         let index = (i + shift) % total_peers;
@@ -283,7 +318,6 @@ fn get_candidates_for_block(
     rotated_peers
 }
 
-// core functions for block fetching and joining
 async fn fetch_block(
     http: Client,
     peer: PeerLocation,
@@ -300,12 +334,7 @@ async fn fetch_block(
         ])
         .send()
         .await
-        .with_context(|| {
-            format!(
-                "failed to request block {block_index} from {}",
-                peer.node_id
-            )
-        })?
+        .with_context(|| format!("failed to request block {block_index} from {}", peer.node_id))?
         .error_for_status()
         .with_context(|| format!("peer {} rejected block {block_index}", peer.node_id))?
         .bytes()
@@ -313,7 +342,6 @@ async fn fetch_block(
         .with_context(|| format!("failed to read block {block_index} from {}", peer.node_id))?
         .to_vec();
     
-    // validation of block integrity using expected hash if available
     if let Some(expected_hash) = expected_hash {
         let actual_hash = sha256_hex(&bytes);
         if actual_hash != expected_hash {

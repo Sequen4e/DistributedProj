@@ -12,7 +12,6 @@ use tokio_stream::StreamExt;
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use crate::signal::BroadcastSignal;
-// 🚀 引入原版的本地文件扫描函数和配置项
 use crate::local_files::scan_share_dir;
 use crate::node_shell::NodeConfig;
 use crate::node_runtime::RuntimeCommand;
@@ -31,9 +30,9 @@ pub async fn init_tui(
     if let Ok(mut terminal) = Terminal::new(backend) {
         let _ = terminal.clear();
         
-        // 🚀 初始化 CLI 终端欢迎语
-        let mut initial_history = vec![
-            "Resource Node Integrated CLI Terminal v0.1.0".to_string(),
+        //   初始化控制台终端欢迎语（现在它会在左侧大面板回显）
+        let initial_history = vec![
+            "Welcome to Resource Node Console Hub".to_string(),
             "Type `help` to list available commands.".to_string(),
             "--------------------------------------------------".to_string(),
         ];
@@ -47,7 +46,7 @@ pub async fn init_tui(
             file_size: 0,
             file_hash: String::from("-"),
             input_buffer: String::new(),
-            cli_history: initial_history, // 🚀 挂载终端历史纪录
+            cli_history: initial_history, 
         };
         let _ = tui.run(&mut terminal).await;
     }
@@ -66,7 +65,7 @@ struct Tui {
     pub file_size: u64,
     pub file_hash: String,
     pub input_buffer: String,
-    pub cli_history: Vec<String>, // 🚀 存放 CLI 回显历史的缓冲区
+    pub cli_history: Vec<String>, 
 }
 
 impl Tui {
@@ -92,6 +91,9 @@ impl Tui {
                             if total_blocks > 0 {
                                 self.progress = downloaded_blocks as f32 / total_blocks as f32;
                             }
+                        }
+                        BroadcastSignal::ConsoleLog(msg) => {
+                            self.cli_history.push(msg);
                         }
                     }
                     terminal.draw(|frame| self.render(frame))?;
@@ -125,19 +127,16 @@ impl Tui {
         Ok(())
     }
 
-    // 🚀 100% 还原并集成你原版 CLI 的所有核心业务逻辑
     async fn handle_command(&mut self) {
         let raw_cmd = self.input_buffer.clone();
         let command = raw_cmd.trim().to_string();
         self.input_buffer.clear();
 
-        // 在终端历史中回显用户刚刚敲下的命令提示符
         let prompt_prefix = format!("[{}] {}:{}> ", self.config.node_id, self.config.peer_host, self.config.peer_port);
         self.cli_history.push(format!("{}{}", prompt_prefix, command));
 
         let mut parts = command.split_whitespace();
         match parts.next() {
-            // 1. 还原 local 命令
             Some("local") => {
                 match scan_share_dir(&self.config.share_dir, self.config.block_size) {
                     Ok(index) => {
@@ -153,7 +152,6 @@ impl Tui {
                     Err(e) => self.cli_history.push(format!("Error scanning dir: {}", e)),
                 }
             }
-            // 2. 还原 localCplt 命令
             Some("localCplt") => {
                 match scan_share_dir(&self.config.share_dir, self.config.block_size) {
                     Ok(index) => {
@@ -166,7 +164,6 @@ impl Tui {
                     Err(e) => self.cli_history.push(format!("Error: {}", e)),
                 }
             }
-            // 3. 还原 update 命令
             Some("update") => {
                 self.cli_history.push("Publishing local files to tracker...".to_string());
                 let (done_tx, done_rx) = oneshot::channel();
@@ -175,16 +172,14 @@ impl Tui {
                     self.cli_history.push("Publish complete.".to_string());
                 }
             }
-            // 4. 还原 list 命令
             Some("list") => {
                 self.cli_history.push("Fetching file list from tracker...".to_string());
                 let (done_tx, done_rx) = oneshot::channel();
                 if self.command_tx.send(RuntimeCommand::ListTrackerFiles { done: done_tx }).is_ok() {
                     let _ = done_rx.await;
-                    self.cli_history.push("List request finished (Check System Log for details).".to_string());
+                    self.cli_history.push("List request finished.".to_string());
                 }
             }
-            // 5. 还原 download 命令
             Some("download") => {
                 if let Some(target) = parts.next() {
                     self.cli_history.push(format!("Starting download task for target: {}", target));
@@ -197,7 +192,6 @@ impl Tui {
                     self.cli_history.push("Usage: download <file_hash|file_name>".to_string());
                 }
             }
-            // 6. 还原 offline 命令
             Some("offline") => {
                 self.cli_history.push("Marking node as offline...".to_string());
                 let (done_tx, done_rx) = oneshot::channel();
@@ -206,7 +200,6 @@ impl Tui {
                     self.cli_history.push("Offline signal sent to tracker.".to_string());
                 }
             }
-            // 7. 还原 help 命令
             Some("help") => {
                 self.cli_history.push("Available commands:".to_string());
                 self.cli_history.push("  local     Scan local files and print summary".to_string());
@@ -228,38 +221,51 @@ impl Tui {
         }
     }
 
-    fn render_tui_log(&self, frame: &mut Frame, area: Rect) {
-        let log_widget = tui_logger::TuiLoggerWidget::default()
-            .block(Block::new().borders(Borders::ALL).title("System Log").title_style(Style::default().bold()))
-            .style_error(Style::default().fg(Color::LightRed))
-            .style_warn(Style::default().fg(Color::LightYellow))
-            .style_info(Style::default().fg(Color::LightGreen))
-            .output_file(false)
-            .output_line(false);
-        frame.render_widget(log_widget, area);
-    }
-
     fn render(&self, frame: &mut Frame) {
         let frame_size = frame.size();
 
-        // 🚀 核心修改 1：调大底部嵌入式 CLI 的空间，切出 11 个像素高的大框给命令行
+        //   布局修改 1：底部只切出 3 个像素高度（除去上下边框，正好剩下 1 行用来打字输入）
         let vlayout = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![
-                Constraint::Fill(1),      // 上方业务指标看板
-                Constraint::Length(4),    // 传输进度条
-                Constraint::Length(16)    // 🚀 下方全功能 CLI 终端模拟器
+                Constraint::Fill(1),      // 上方核心大看板（包含左侧重定向区域 + 右侧详情）
+                Constraint::Length(4),    // 中间传输进度条
+                Constraint::Length(3)     //   底部单行命令输入框
             ])
             .split(frame_size);
 
         let hlayout = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(50)])
+            .constraints(vec![Constraint::Percentage(70), Constraint::Percentage(30)])
             .split(vlayout[0]);
 
-        // 1. 渲染上方数据
-        self.render_tui_log(frame, hlayout[0]);
+        //   布局修改 2：把左侧改造成接收“控制台输出历史”的滚动视图
+        let console_block = Block::new()
+            .borders(Borders::ALL)
+            .title(" Console Command Output ")
+            .title_style(Style::default().bold().fg(Color::LightCyan));
+        
+        let console_area = hlayout[0];
+        let inner_console = console_block.inner(console_area);
+        
+        // 动态计算左侧巨大的可视行数
+        let max_console_lines = inner_console.height as usize;
+        let console_lines: Vec<Line> = self.cli_history.iter()
+            .map(|s| Line::from(s.clone().white()))
+            .collect();
 
+        // 超长文本自动滚屏切片
+        let scrolled_console_lines = if console_lines.len() > max_console_lines {
+            &console_lines[console_lines.len() - max_console_lines..]
+        } else {
+            &console_lines[..]
+        };
+
+        let console_paragraph = Paragraph::new(scrolled_console_lines.to_vec());
+        frame.render_widget(console_block, console_area);
+        frame.render_widget(console_paragraph, inner_console);
+
+        // 2. 右侧任务信息（保持不变）
         let info_block = Block::new().borders(Borders::ALL).title("Node Task Info");
         let lines = vec![
             "File Name:".bold().into(),
@@ -272,7 +278,7 @@ impl Tui {
         frame.render_widget(info_block, hlayout[1]);
         frame.render_widget(paragraph, inner_info);
 
-        // 2. 渲染中间进度条
+        // 3. 中间进度条（保持不变）
         let progress_block = Block::new().borders(Borders::ALL).title("Transmission Progress").title_style(Style::default().bold());
         let progress_gauge = Gauge::default()
             .gauge_style(Style::new().light_yellow().on_dark_gray())
@@ -283,46 +289,29 @@ impl Tui {
         let prog_layout = Layout::default().direction(Direction::Vertical).constraints(vec![Constraint::Length(1), Constraint::Length(1)]).split(inner_prog);
         frame.render_widget(progress_gauge, prog_layout[1]);
 
-        // 3. 🚀 核心修改 2：渲染超酷的“嵌入式大 CLI 终端”
-        let cli_block = Block::new()
+        //   布局修改 3：渲染极简的底部单行输入框
+        let input_block = Block::new()
             .borders(Borders::ALL)
-            .title(" Integrated Node CLI Terminal ")
-            .title_style(Style::default().bold().fg(Color::LightCyan));
+            .title(" Command Input (e.g., `local`, `localCplt`, `download <hash>`) ")
+            .title_style(Style::default().bold().fg(Color::LightYellow));
         
-        let cli_area = vlayout[2];
-        let inner_cli = cli_block.inner(cli_area);
+        let input_area = vlayout[2];
+        let inner_input = input_block.inner(input_area);
         
-        // 计算文本终端能容纳的最大行数 (除去边框)
-        let max_visible_lines = inner_cli.height as usize;
-        
-        // 构建当前终端要渲染的所有行（包含历史记录 + 底部正在输入的活动行）
-        let mut display_lines: Vec<Line> = self.cli_history.iter()
-            .map(|s| Line::from(s.clone().white()))
-            .collect();
-        
-        // 动态拼接当前的 Prompt 提示符：[id] host:port> 你的输入
+        // 渲染单行的活动输入：[id] host:port> 你的打字内容
         let prompt_prefix = format!("[{}] {}:{}> ", self.config.node_id, self.config.peer_host, self.config.peer_port);
         let active_line = Line::from_iter([
             prompt_prefix.clone().cyan(), 
             self.input_buffer.clone().light_yellow()
         ]);
-        display_lines.push(active_line);
 
-        // 🚀 实现终端“自动滚屏”机制：如果历史行数过多，只截取最后几行显示，防止溢出
-        let scrolled_lines = if display_lines.len() > max_visible_lines {
-            &display_lines[display_lines.len() - max_visible_lines..]
-        } else {
-            &display_lines[..]
-        };
+        let input_paragraph = Paragraph::new(active_line);
+        frame.render_widget(input_block, input_area);
+        frame.render_widget(input_paragraph, inner_input);
 
-        let cli_paragraph = Paragraph::new(scrolled_lines.to_vec());
-        frame.render_widget(cli_block, cli_area);
-        frame.render_widget(cli_paragraph, inner_cli);
-
-        // 🚀 核心修改 3：动态计算光标应该定位在哪一行哪一列
-        // Y 轴总是位于 CLI 框内的最后一行；X 轴等于提示符长度 + 用户当前输入的字符数
-        let cursor_y = inner_cli.y + (scrolled_lines.len() as u16) - 1;
-        let cursor_x = inner_cli.x + (prompt_prefix.len() as u16) + (self.input_buffer.len() as u16);
+        //   布局修改 4：由于输入框只有一行，光标的 Y 轴永远固定，X 轴跟随打字长度变化即可
+        let cursor_x = inner_input.x + (prompt_prefix.len() as u16) + (self.input_buffer.len() as u16);
+        let cursor_y = inner_input.y;
         frame.set_cursor(cursor_x, cursor_y);
     }
 }

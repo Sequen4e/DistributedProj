@@ -44,6 +44,7 @@ pub async fn run(config: NodeConfig) -> Result<()> {
         config.clone(),
         worker_rx,
         shutdown_rx.clone(),
+        broadcast_tx.clone(), // 🚀 核心：把广播发射器传给后台下载线程
     ));
 
     let mut tui_handle = tokio::spawn(crate::tui::init_tui(
@@ -56,7 +57,7 @@ pub async fn run(config: NodeConfig) -> Result<()> {
     let command_tx_clone = command_tx.clone();
     tokio::spawn(async move {
         while let Ok(signal) = tui_rx.recv().await {
-            if signal == BroadcastSignal::Shutdown {
+            if matches!(signal, BroadcastSignal::Shutdown) {
                 let _ = command_tx_clone.send(RuntimeCommand::Shutdown);
                 break;
             }
