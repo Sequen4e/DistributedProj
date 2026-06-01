@@ -30,6 +30,7 @@ pub struct DownloadContext {
     pub file: Mutex<File>,
     pub blocks: RwLock<Vec <BlockStatus> >,
     pub peers: RwLock<Vec <PeerFileInfo> >,
+    pub block_remote_peers_count: RwLock< Vec <u64> >,
     pub transmitted: DashMap<String, u64>,
 }
 impl DownloadContext {
@@ -50,7 +51,7 @@ impl DownloadContext {
         }
     }
 
-    pub async fn block_remote_peers_count(&self) -> Vec<u64> {
+    pub async fn calculate_block_remote_peers_count(&self) -> Vec<u64> {
         let block_count = self.manifest.file_size.div_ceil(self.manifest.block_size);
         let bitmap : Vec<String> = self.peers.read().await.iter().map(|x| x.blocks.clone()).collect();
         let mut peer_counts = vec![0; block_count as usize];
@@ -113,13 +114,14 @@ pub async fn update_peer_info_task(context: Arc<DownloadContext>, seconds: u64) 
             if !pass {
                 log::warn!(target: "peer_update", "Invalid peer info inspesctd in peer list (peer_id{})", x.peer_id);
             }
-            pass
+            pass && x.peer_id != context.node_id
         }).collect();
-
         log::info!(target: "peer_update", "Currently {} peers online", peers.len());
 
         let mut guard = context.peers.write().await;
         let _ = std::mem::replace(&mut *guard, peers);
+        let mut guard = context.block_remote_peers_count.write().await;
+        let _ = std::mem::replace(&mut *guard, context.calculate_block_remote_peers_count().await);
     }
 }
 
@@ -141,4 +143,21 @@ pub async fn download(context: Arc<DownloadContext>) {
         _ = signal::ctrl_c() => { update_task.abort(); },
         _ = rx.recv() => { update_task.abort(); },
     };
+}
+
+pub async fn decide_next_block(context: Arc<DownloadContext>) -> Option<u64> {
+    let blocks = context.blocks.read().await;
+    // (Index and count)
+    let mut pending_blocks: Vec<(u64, u64)> = context.block_remote_peers_count.read().await.iter().enumerate()
+        .filter(|(idx, _)| blocks.get(*idx).is_some_and(|status| *status == BlockStatus::Pending))
+        .map(|(idx, count)| (idx as u64, *count) )
+        .collect();
+    pending_blocks.sort_by(|(ai, ac), (bi, bc)| {
+        match ac.cmp(bc) {
+            std::cmp::Ordering::Equal => ai.cmp(bi) ,
+            _x => _x
+        }
+    });
+
+    pending_blocks.first().map(|(idx, _)| *idx)
 }
