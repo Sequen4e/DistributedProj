@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
+use bytesize::ByteSize;
+use thousands::Separable;
 use crossterm::event::{Event, EventStream, KeyCode};
 use crossterm::terminal::disable_raw_mode;
-use ratatui::style::{Color, Style};
-use ratatui::widgets::{Block, Borders, Gauge};
-use ratatui::layout::{Direction, Layout, Constraint};
+use ratatui::style::{Color, Style, Stylize};
+use ratatui::text::Line;
+use ratatui::widgets::{Block, Borders, Gauge, Paragraph};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::Frame;
 use ratatui::DefaultTerminal;
 use tokio_stream::StreamExt;
@@ -52,6 +55,75 @@ impl Tui {
         Ok(())
     }
 
+    fn render_tui_log(&self, frame: &mut Frame, area: Rect) {
+        let log_widget = tui_logger::TuiLoggerWidget::default()
+            .block(Block::new().borders(Borders::ALL).title("System Log").title_style(Style::default().bold()))
+            .style_error(Style::default().fg(Color::LightRed))
+            .style_warn(Style::default().fg(Color::LightYellow))
+            .style_info(Style::default().fg(Color::LightGreen))
+            .style_debug(Style::default().fg(Color::LightCyan))
+            .style_trace(Style::default().fg(Color::LightBlue))
+            .output_file(false)
+            .output_line(false);
+        frame.render_widget(log_widget, area);
+    }
+
+    fn render_progress(&self, frame: &mut Frame, inner_area: Rect) {
+        let prog_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![
+                Constraint::Length(1),
+                Constraint::Length(1),
+            ])
+            .split(inner_area);
+        let prog_up = prog_layout[0];
+        let prog_down = prog_layout[1];
+
+        let progress_gauge = Gauge::default()
+            .gauge_style(Style::new().light_yellow().on_dark_gray())
+            .percent(((self.progress * 100.0).round() as u16).clamp(0, 100))
+            .label(format!("{:.1}%", self.progress * 100.0));
+        frame.render_widget(progress_gauge, prog_down);
+    }
+
+    fn render_info(&self, frame: &mut Frame, inner_area: Rect){
+        let info_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![
+                Constraint::Length(10),
+                Constraint::Length(1),
+            ])
+            .split(inner_area);
+
+        let lines = vec![
+            "File Info:".bold().into(),
+            self.context.manifest.file_name.clone().bold().green().into(),
+            Line::from_iter([
+                "  Hash: ".yellow(),
+                self.context.manifest.file_hash.clone().into()
+            ]),
+            Line::from_iter([
+                "  Size: ".yellow(),
+                ByteSize::b(self.context.manifest.file_size).display().iec().to_string().into(),
+                " (".into(),
+                self.context.manifest.file_size.separate_with_commas().to_string().into(),
+                " bytes)".into()
+            ]),
+            Line::from_iter([
+                "  Block Size: ".yellow(),
+                ByteSize::b(self.context.manifest.block_size).display().iec().to_string().into(),
+                " (".into(),
+                self.context.manifest.file_size.div_ceil(self.context.manifest.block_size).separate_with_commas().to_string().into(),
+                " blocks)".into()
+            ])
+        ];
+
+        let paragraph = Paragraph::new(lines)
+            .style(Color::White);
+
+        frame.render_widget(paragraph, info_layout[0]);
+    }
+
     fn render(&self, frame: &mut Frame) {
         let vlayout = Layout::default()
             .direction(Direction::Vertical)
@@ -77,37 +149,13 @@ impl Tui {
         let prog_inner_area = progress_block.inner(prog_area);
         let info_inner_area = info_block.inner(info_area);
 
-        let prog_layout = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![
-                Constraint::Length(1),
-                Constraint::Length(1),
-            ])
-            .split(prog_inner_area);
-        let prog_up = prog_layout[0];
-        let prog_down = prog_layout[1];
-
-        
-        let progress_gauge = Gauge::default()
-            .gauge_style(Style::new().light_yellow().on_dark_gray())
-            .percent(((self.progress * 100.0).round() as u16).clamp(0, 100))
-            .label(format!("{:.1}%", self.progress * 100.0));
-
-        let log_widget = tui_logger::TuiLoggerWidget::default()
-            .block(Block::new().borders(Borders::ALL).title("System Log").title_style(Style::default().bold()))
-            .style_error(Style::default().fg(Color::LightRed))
-            .style_warn(Style::default().fg(Color::LightYellow))
-            .style_info(Style::default().fg(Color::LightGreen))
-            .style_debug(Style::default().fg(Color::LightCyan))
-            .style_trace(Style::default().fg(Color::LightBlue))
-            .output_file(false)
-            .output_line(false);
-        
-
-        frame.render_widget(log_widget, log_area);
-        frame.render_widget(info_block, info_area);
+        // frame.render_widget(log_widget, log_area);
+        self.render_tui_log(frame, log_area);
         frame.render_widget(progress_block, prog_area);
-        frame.render_widget(progress_gauge, prog_down);
+        self.render_progress(frame, prog_inner_area);
+
+        frame.render_widget(info_block, info_area);
+        self.render_info(frame, info_inner_area);
     }
 
     fn handle_event(&mut self, event: &Event) {
