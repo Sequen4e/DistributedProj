@@ -14,6 +14,8 @@ mod tracker_client;
 mod tracker_dto;
 mod transfer_worker;
 mod random_id;
+mod tui;
+mod signal;
 
 #[derive(Parser)]
 #[command(name = "resource-node")]
@@ -37,7 +39,10 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tui_logger::init_logger(log::LevelFilter::Info).expect("Failed to initialize logger");
+    tui_logger::set_default_level(log::LevelFilter::Info);
     let cli = Cli::parse();
+    log::info!("Starting core services...");
     run(NodeConfig {
         node_id: random_id::generate_node_id(&cli.host, cli.port),
         tracker: cli.tracker,
