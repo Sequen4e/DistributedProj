@@ -9,23 +9,24 @@ use ratatui::Frame;
 use ratatui::DefaultTerminal;
 use tokio_stream::StreamExt;
 
-use crate::download::DownloadContext;
+use crate::download::{BlockStatus, DownloadContext};
 use crate::signal::BroadcastSignal;
 
 pub async fn init_tui(context: Arc<DownloadContext>) {
     disable_raw_mode().expect("Failed to disable raw mode");
     let terminal = ratatui::init();
-    Tui {context} .run(terminal).await;
+    Tui {context, progress: 0.0} .run(terminal).await;
 
     ratatui::restore();
 }
 
 struct Tui {
-    context: Arc<DownloadContext>
+    pub context: Arc<DownloadContext>,
+    pub progress: f32,
 }
 
 impl Tui {
-    const FRAMES_PER_SECOND: f32 = 60.0;
+    const FRAMES_PER_SECOND: f32 = 10.0;
 
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> anyhow::Result<()> {
         let period = std::time::Duration::from_secs_f32(1.0 / Self::FRAMES_PER_SECOND);
@@ -36,7 +37,14 @@ impl Tui {
         loop {
             tokio::select! {
                 _ = rx.recv() => { break; },
-                _ = interval.tick() => { terminal.draw(|frame| self.render(frame))?; },
+                _ = interval.tick() => {
+
+                    let block_count : u64 = self.context.manifest.file_size.div_ceil(self.context.manifest.block_size);
+                    let block_downloaded : usize = self.context.blocks.read().await.iter().filter(|value| **value == BlockStatus::Complete).count();
+                    self.progress = block_downloaded as f32 / block_count as f32;
+
+                    terminal.draw(|frame| self.render(frame))?;
+                },
                 Some(Ok(event)) = events.next() => self.handle_event(&event),
             }
         }
@@ -78,10 +86,12 @@ impl Tui {
             .split(prog_inner_area);
         let prog_up = prog_layout[0];
         let prog_down = prog_layout[1];
+
         
         let progress_gauge = Gauge::default()
             .gauge_style(Style::new().light_yellow().on_dark_gray())
-            .percent(80);
+            .percent(((self.progress * 100.0).round() as u16).clamp(0, 100))
+            .label(format!("{:.1}%", self.progress * 100.0));
 
         let log_widget = tui_logger::TuiLoggerWidget::default()
             .block(Block::new().borders(Borders::ALL).title("System Log").title_style(Style::default().bold()))

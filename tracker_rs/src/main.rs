@@ -154,6 +154,8 @@ async fn peer_update(
     State(state): State<Arc<Context>>,
     Json(payload): Json<PeerUpdateRequest>
 ) -> (StatusCode, ()) {
+
+    log::info!("{} {} Updated their peer info for file {}", addr, payload.peer_id, payload.file_hash);
     
     let file = {
         let by_hash = state.file_list_by_hash.read().await;
@@ -184,9 +186,12 @@ async fn peer_update(
 }
 
 async fn peer_list(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<Arc<Context>>,
     Query(payload): Query<PeerListRequest>
 ) -> (StatusCode, Json<PeerListResponse>) {
+
+    log::info!("{} Requested peer info of file {}", addr, payload.file_hash);
     
     let file = {
         let by_hash = state.file_list_by_hash.read().await;

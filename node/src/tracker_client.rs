@@ -1,8 +1,10 @@
+use std::time::Duration;
+
 use anyhow::{Context, Result};
-use reqwest::{Client, StatusCode};
+use reqwest::Client;
 
-use crate::{announce::AnnounceFileResponse, models::FileManifest, tracker_dto::{FileAnnounceRequest, FileDetailResponse, FileListResponse}};
-
+use crate::tracker_dto::{AnnounceFileResponse, FileAnnounceRequest, FileDetailResponse, FileListResponse, PeerListResponse, PeerUpdateRequest, PeerUpdateResponse};
+use crate::models::FileManifest;
 #[derive(Clone, Debug)]
 pub struct TrackerClient {
     pub base_url: String,
@@ -13,7 +15,9 @@ impl TrackerClient {
     pub fn new(base_url: impl Into<String>) -> Self {
         Self {
             base_url: base_url.into().trim_end_matches('/').to_string(),
-            client: Client::new(),
+            client: Client::builder()
+                .timeout(Duration::from_secs(10))
+                .build().expect("Failed to build tracker client"),
         }
     }
 
@@ -56,15 +60,31 @@ impl TrackerClient {
             .await
             .context("Failed to send announce file request")?;
 
-        let response = match response.status() {
-            StatusCode::OK => AnnounceFileResponse::Ok,
-            StatusCode::CONFLICT => AnnounceFileResponse::Conflict,
-            StatusCode::BAD_REQUEST => AnnounceFileResponse::BadRequest,
-            _ => AnnounceFileResponse::Unknown
-        };
+        Ok(AnnounceFileResponse::from(response.status()))
 
-        Ok(response)
+    }
 
+    pub async fn update_peer(&self, req: PeerUpdateRequest) -> anyhow::Result<PeerUpdateResponse> {
+
+        let response = self.client
+            .post(self.url("/api/v2/update"))
+            .json(&req)
+            .send()
+            .await
+            .context("Failed to send peer update")?;
+
+        Ok(PeerUpdateResponse::from(response.status()))
+    }
+
+    pub async fn peer_list(&self, file_hash: &str) -> anyhow::Result<PeerListResponse> {
+        self.client
+            .get(self.url(&format!("/api/v2/peer_list?file_hash={}", file_hash)))
+            .send()
+            .await
+            .context("Failed to request peer list")?
+            .json()
+            .await
+            .context("Failed to parse tracker JSON payload")
     }
 
     fn url(&self, path: &str) -> String {

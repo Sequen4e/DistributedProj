@@ -1,3 +1,4 @@
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::models::{FileManifest, PeerFileInfo};
@@ -27,6 +28,24 @@ impl FileAnnounceRequest {
     pub fn is_valid(&self) -> bool {
         let correct_block_count = self.file_size.div_ceil(self.block_size);
         return correct_block_count == self.block_hashes.len() as u64;
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum AnnounceFileResponse {
+    Ok,
+    Conflict,
+    BadRequest,
+    Unknown
+}
+impl From<StatusCode> for AnnounceFileResponse {
+    fn from(value: StatusCode) -> Self {
+        match value {
+            StatusCode::OK => AnnounceFileResponse::Ok,
+            StatusCode::CONFLICT => AnnounceFileResponse::Conflict,
+            StatusCode::BAD_REQUEST => AnnounceFileResponse::BadRequest,
+            _ => AnnounceFileResponse::Unknown
+        }
     }
 }
 
@@ -62,6 +81,21 @@ pub struct PeerUpdateRequest {
     pub peer_port: u16,
     /// A 0-1 string
     pub blocks: String
+}
+#[derive(Clone, Debug)]
+pub enum PeerUpdateResponse {
+    Ok,
+    FileNotFound,
+    Unknown
+}
+impl From<StatusCode> for PeerUpdateResponse {
+    fn from(value: StatusCode) -> Self {
+        match value {
+            StatusCode::OK => PeerUpdateResponse::Ok,
+            StatusCode::NOT_FOUND => PeerUpdateResponse::FileNotFound,
+            _ => PeerUpdateResponse::Unknown
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]

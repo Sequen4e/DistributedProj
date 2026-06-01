@@ -34,7 +34,7 @@ curl -v 127.0.0.1:3000/api/v2/query?file_id=file_name_test_1.txt
 #### Peer updates (correct)
 ```bash
 curl -v -X POST 127.0.0.1:3000/api/v2/update --json '{
-    "file_hash": "FILE_HASH_TEST_1", 
+    "file_hash": "181210f8f9c779c26da1d9b2075bde0127302ee0e3fca38c9a83f5b1dd8e5d3b", 
     "peer_id": "PEER_ID_1",
     "peer_host": null,
     "peer_port": 1145,

@@ -66,11 +66,3 @@ pub fn generate_manifest<P: AsRef<Path>>(path: P, block_size: u64, pb: Option<in
         block_hashes,
     })
 }
-
-#[derive(Clone, Debug)]
-pub enum AnnounceFileResponse {
-    Ok,
-    Conflict,
-    BadRequest,
-    Unknown
-}

@@ -6,6 +6,7 @@ mod cli;
 mod tui;
 mod download;
 mod peer_server;
+mod random_id;
 mod signal;
 
 use anyhow::Result;
@@ -57,6 +58,10 @@ enum Commands {
         #[arg(short = 'p', long = "port")]
         port: Option<u16>,
 
+        /// Optional node name. If not specified, a random name will be generated
+        #[arg(short = 'n', long = "name")]
+        node_name: Option<String>,
+
         /// File-name or file-hash
         file_id: String,
 
@@ -72,6 +77,10 @@ enum Commands {
         /// Optional port hint. If not specified, a random port will be chosen.
         #[arg(short = 'p', long = "port")]
         port: Option<u16>,
+
+        /// Optional node name. If not specified, a random name will be generated
+        #[arg(short = 'n', long = "name")]
+        node_name: Option<String>,
 
         /// Path to local file to be seeded
         file_path: String,
@@ -97,10 +106,10 @@ async fn main() -> Result<()> {
             query_file_command(TrackerClient::new(tracker.base_url), file_id).await,
         Commands::Announce { tracker, block_size, file_path } => 
             announce_file_command(TrackerClient::new(tracker.base_url), file_path, block_size).await,
-        Commands::Download { tracker, port, file_id, save_path } => 
-            download_command(TrackerClient::new(tracker.base_url), file_id, save_path, port).await,
-        Commands::Seed { tracker, port, file_path } => 
-            seed_command(TrackerClient::new(tracker.base_url), file_path, port).await,
+        Commands::Download { tracker, port, file_id, save_path, node_name } => 
+            download_command(TrackerClient::new(tracker.base_url), file_id, save_path, port, node_name).await,
+        Commands::Seed { tracker, port, file_path, node_name} => 
+            seed_command(TrackerClient::new(tracker.base_url), file_path, port, node_name).await,
     };
 
     Ok(())

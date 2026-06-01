@@ -1,19 +1,19 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use chrono::Utc;
+use rand::Rng;
 use sha2::{Digest, Sha256};
 
-pub fn generate_node_id(host: &str, port: u16) -> String {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
+pub fn generate_node_id(port: u16) -> String {
+    let timestamp_us = Utc::now().timestamp_micros();
 
-    let dummy = Box::new(42);
-    let memory_entropy = &*dummy as *const i32 as usize;
+    let mut random = [0u8; 16];
 
-    let raw_id = format!("{}:{}-{}-{}", host, port, timestamp, memory_entropy);
+    rand::rng().fill_bytes(&mut random);
+
+    let raw_id = format!("{}-{}", port, timestamp_us);
 
     let mut hasher = Sha256::new();
     hasher.update(raw_id.as_bytes());
+    hasher.update(&random);
     let hash_result = hasher.finalize();
 
     let hex_hash = format!("{:x}", hash_result);
