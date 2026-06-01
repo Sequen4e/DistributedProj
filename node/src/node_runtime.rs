@@ -46,7 +46,11 @@ pub async fn run(config: NodeConfig) -> Result<()> {
         shutdown_rx.clone(),
     ));
 
-    let mut tui_handle = tokio::spawn(crate::tui::init_tui(broadcast_tx.clone()));
+    let mut tui_handle = tokio::spawn(crate::tui::init_tui(
+        config.clone(),
+        broadcast_tx.clone(),
+        command_tx.clone(),
+    ));
 
     let mut tui_rx = broadcast_tx.subscribe();
     let command_tx_clone = command_tx.clone();
